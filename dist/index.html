@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="논문 PDF를 문단별로 번역하고 Figure와 Table을 해설해 ko.pdf로 내보내는 연구 도구" />
+    <meta name="theme-color" content="#f4f7fb" />
+    <title>PaperKo — 논문 번역 스튜디오</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="PaperKo 홈">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>PaperKo</span>
+          <span class="brand-beta">BETA</span>
+        </a>
+        <div class="topbar-actions">
+          <span class="privacy-note"><span class="privacy-icon" aria-hidden="true">◆</span> 파일은 분석 후 자동 삭제됩니다</span>
+          <button class="icon-button" id="helpButton" aria-label="도움말">?</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="upload-view" id="uploadView" aria-labelledby="pageTitle">
+          <div class="hero-copy">
+            <div class="eyebrow"><span></span> AI PAPER READER</div>
+            <h1 id="pageTitle">논문을 읽는 시간은 줄이고,<br /><em>이해하는 시간</em>에 집중하세요.</h1>
+            <p>문단의 맥락을 살린 한국어 번역부터 Figure와 Table이 말하는 핵심 결과까지. 한 번의 업로드로 읽기 좋은 한국어 논문을 만듭니다.</p>
+            <div class="trust-row" aria-label="주요 기능">
+              <div><strong>문맥 기반</strong><span>전문 용어 일관성</span></div>
+              <div><strong>시각 자료</strong><span>결과 중심 해설</span></div>
+              <div><strong>PDF 출력</strong><span>원문 구조 보존</span></div>
+            </div>
+          </div>
+
+          <div class="upload-panel">
+            <div class="upload-panel-head">
+              <div>
+                <span class="step-kicker">새 번역</span>
+                <h2>논문 PDF 업로드</h2>
+              </div>
+              <span class="usage-pill">오늘 3회 남음</span>
+            </div>
+
+            <label class="dropzone" id="dropzone" for="fileInput">
+              <input type="file" id="fileInput" accept="application/pdf,.pdf" />
+              <span class="upload-icon" aria-hidden="true"><span></span></span>
+              <strong>PDF를 이곳에 끌어다 놓으세요</strong>
+              <span>또는 <u>내 컴퓨터에서 선택</u></span>
+              <small>최대 50MB · 100페이지 이하 · PDF 형식</small>
+            </label>
+
+            <div class="file-ready" id="fileReady" hidden>
+              <span class="pdf-badge">PDF</span>
+              <div><strong id="fileName">paper.pdf</strong><span id="fileMeta">파일을 확인했습니다</span></div>
+              <button id="removeFile" class="text-button" type="button">삭제</button>
+            </div>
+
+            <div class="options-grid">
+              <label><span>번역 스타일</span><select id="translationStyle"><option>자연스러운 학술 번역</option><option>직역에 가까운 번역</option><option>쉬운 한국어 해설</option></select></label>
+              <label><span>전문 분야</span><select id="discipline"><option>자동 감지</option><option>의학·생명과학</option><option>컴퓨터과학·AI</option><option>공학·재료</option><option>사회과학</option></select></label>
+            </div>
+
+            <label class="check-row"><input type="checkbox" checked /><span class="fake-check">✓</span><span><strong>Figure · Table 해설 포함</strong><small>캡션과 본문 근거를 함께 분석합니다</small></span></label>
+
+            <button class="primary-button" id="startButton" disabled>한국어 논문 만들기</button>
+            <div class="divider"><span>먼저 둘러보고 싶다면</span></div>
+            <button class="sample-button" id="sampleButton"><span class="spark" aria-hidden="true">✦</span> 샘플 논문으로 체험하기</button>
+          </div>
+        </section>
+
+        <section class="processing-view" id="processingView" hidden aria-live="polite">
+          <div class="process-card">
+            <div class="paper-animation" aria-hidden="true"><div class="scan-line"></div><span></span><span></span><span></span></div>
+            <span class="process-label">PAPERKO ANALYZING</span>
+            <h1 id="processTitle">논문의 구조를 파악하고 있어요</h1>
+            <p id="processMessage">제목, 초록, 본문과 참고문헌을 구분하는 중입니다.</p>
+            <div class="progress-track"><span id="progressBar"></span></div>
+            <div class="process-steps">
+              <div class="active" data-process-step="0"><i>✓</i><span>문서 구조 인식</span></div>
+              <div data-process-step="1"><i>2</i><span>문단별 맥락 번역</span></div>
+              <div data-process-step="2"><i>3</i><span>Figure · Table 분석</span></div>
+              <div data-process-step="3"><i>4</i><span>한국어 PDF 구성</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="result-view" id="resultView" hidden>
+          <aside class="result-sidebar">
+            <div class="mini-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> PaperKo</div>
+            <button class="new-paper-button" id="newPaperButton"><span>＋</span> 새 논문 번역</button>
+            <nav class="section-nav" aria-label="논문 목차">
+              <span>논문 목차</span>
+              <button class="active" data-target="overview"><i></i>한눈에 보기</button>
+              <button data-target="abstract"><i></i>초록 <b>2</b></button>
+              <button data-target="intro"><i></i>서론 <b>3</b></button>
+              <button data-target="results"><i></i>연구 결과 <b>4</b></button>
+              <button data-target="visuals"><i></i>Figure · Table <b>3</b></button>
+            </nav>
+            <div class="sidebar-help"><strong>번역이 어색한가요?</strong><span>문단마다 원문과 비교하고 직접 수정할 수 있어요.</span><button id="feedbackButton">의견 보내기</button></div>
+          </aside>
+
+          <div class="result-main">
+            <header class="result-header">
+              <div class="breadcrumb"><button id="backButton">내 논문</button><span>/</span><strong id="headerPaperTitle">Attention Is All You Need</strong></div>
+              <div class="result-actions">
+                <span class="saved-state">✓ 자동 저장됨</span>
+                <button class="outline-button" id="previewButton">미리보기</button>
+                <button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button>
+              </div>
+            </header>
+
+            <div class="result-content">
+              <div class="demo-banner" id="demoBanner"><span>DEMO</span> 샘플 논문으로 생성한 예시 결과입니다. 실제 모델 연동 시 업로드한 논문 내용으로 바뀝니다.</div>
+
+              <section class="paper-heading" id="overview">
+                <span class="field-tag">COMPUTER SCIENCE · AI</span>
+                <h1>어텐션만으로 충분하다</h1>
+                <p class="original-title">Attention Is All You Need</p>
+                <div class="paper-meta"><span>Vaswani et al.</span><i></i><span>2017</span><i></i><span>12쪽</span><i></i><span>문단 34개</span></div>
+              </section>
+
+              <section class="summary-card">
+                <div class="summary-icon">✦</div>
+                <div><span class="card-label">한눈에 보는 핵심</span><p>순환 신경망이나 합성곱 없이 <strong>어텐션 메커니즘만으로 구성한 Transformer</strong>를 제안합니다. 병렬 처리가 가능해 학습 비용을 줄이면서도 기계 번역 성능을 크게 높였습니다.</p></div>
+              </section>
+
+              <div class="content-tabs" role="tablist">
+                <button class="active" role="tab" data-tab="translation">문단별 번역 <span>34</span></button>
+                <button role="tab" data-tab="visual">Figure · Table <span>3</span></button>
+              </div>
+
+              <div id="translationTab" class="tab-panel">
+                <section class="paper-section" id="abstract">
+                  <div class="section-heading"><div><span>ABSTRACT</span><h2>초록</h2></div><button class="section-toggle">원문 함께 보기</button></div>
+                  <article class="paragraph-card">
+                    <div class="paragraph-index">01</div>
+                    <div class="paragraph-body">
+                      <p class="ko-text">기존의 지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반합니다. 가장 우수한 모델들은 어텐션 메커니즘을 통해 인코더와 디코더를 연결합니다.</p>
+                      <p class="en-text">The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder.</p>
+                      <div class="paragraph-tools"><span>용어 <b>시퀀스 변환</b> · <b>인코더</b> · <b>디코더</b></span><button>수정</button><button>복사</button></div>
+                    </div>
+                  </article>
+                  <article class="paragraph-card">
+                    <div class="paragraph-index">02</div>
+                    <div class="paragraph-body">
+                      <p class="ko-text">본 연구에서는 순환 구조와 합성곱을 완전히 배제하고 어텐션 메커니즘에만 기반한 새로운 네트워크 구조인 Transformer를 제안합니다.</p>
+                      <p class="en-text">We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.</p>
+                      <div class="paragraph-tools"><span>핵심 주장 <b>Transformer 구조 제안</b></span><button>수정</button><button>복사</button></div>
+                    </div>
+                  </article>
+                </section>
+
+                <section class="paper-section" id="intro">
+                  <div class="section-heading"><div><span>INTRODUCTION</span><h2>서론</h2></div><button class="section-toggle">원문 함께 보기</button></div>
+                  <article class="paragraph-card">
+                    <div class="paragraph-index">03</div>
+                    <div class="paragraph-body"><p class="ko-text">순환 신경망, 특히 장단기 기억 네트워크와 게이트 순환 신경망은 언어 모델링과 기계 번역 같은 시퀀스 모델링 문제에서 최첨단 접근법으로 확고히 자리 잡았습니다.</p><p class="en-text">Recurrent neural networks have been firmly established as state of the art approaches in sequence modeling.</p><div class="paragraph-tools"><span>배경 <b>기존 연구의 한계</b></span><button>수정</button><button>복사</button></div></div>
+                  </article>
+                </section>
+              </div>
+
+              <div id="visualTab" class="tab-panel" hidden>
+                <section class="paper-section" id="visuals">
+                  <div class="section-heading"><div><span>VISUAL EVIDENCE</span><h2>Figure · Table 해설</h2></div><span class="analysis-count">3개 분석 완료</span></div>
+                  <article class="visual-card">
+                    <div class="figure-preview transformer-diagram"><div class="encoder">Encoder</div><div class="attention-core">Multi-Head<br/>Attention</div><div class="decoder">Decoder</div></div>
+                    <div class="visual-copy"><span class="visual-type">FIGURE 1 · MODEL ARCHITECTURE</span><h3>Transformer 전체 구조</h3><p>왼쪽 인코더와 오른쪽 디코더가 여러 층으로 반복되며, 각 층의 핵심은 멀티헤드 어텐션입니다. 순환 연결이 없어 모든 토큰을 동시에 처리할 수 있다는 점을 보여줍니다.</p><div class="result-callout"><strong>이 그림이 말하는 결과</strong><span>장거리 의존성을 직접 연결하면서도 병렬 학습이 가능한 구조입니다.</span></div></div>
+                  </article>
+                  <article class="visual-card table-card">
+                    <div class="table-preview"><div class="table-row header"><span>Model</span><span>BLEU</span><span>Cost</span></div><div class="table-row"><span>ConvS2S</span><span>25.16</span><span>1.5×</span></div><div class="table-row highlight"><span>Transformer</span><span>28.40</span><span>1.0×</span></div></div>
+                    <div class="visual-copy"><span class="visual-type">TABLE 2 · TRANSLATION PERFORMANCE</span><h3>영어–독일어 번역 성능</h3><p>Transformer는 비교 모델보다 높은 BLEU 점수를 기록하면서 학습 비용은 더 낮았습니다. 품질과 효율을 동시에 개선한 결과입니다.</p><div class="metric-row"><span><b>+3.24</b> BLEU 향상</span><span><b>33%</b> 비용 절감</span></div></div>
+                  </article>
+                </section>
+              </div>
+
+              <footer class="result-footer"><span>PaperKo 번역은 AI가 생성하므로 중요한 내용은 원문과 비교해 주세요.</span><button id="topButton">맨 위로</button></footer>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div id="pdfExport" aria-hidden="true"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
