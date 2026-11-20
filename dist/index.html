@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="논문 PDF를 문단별로 번역하고 Figure와 Table을 해설해 ko.pdf로 내보내는 연구 도구" />
     <meta name="theme-color" content="#f4f7fb" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>PaperKo — 논문 번역 스튜디오</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +15,7 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#" aria-label="PaperKo 홈">
+        <a class="brand" href="#" aria-label="PaperKo BETA 홈">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <span>PaperKo</span>
           <span class="brand-beta">BETA</span>
@@ -94,93 +95,95 @@
           <aside class="result-sidebar">
             <div class="mini-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> PaperKo</div>
             <button class="new-paper-button" id="newPaperButton"><span>＋</span> 새 논문 번역</button>
-            <nav class="section-nav" aria-label="논문 목차">
+            <div class="sidebar-switch"><button class="active" data-side="toc">목차</button><button data-side="library">논문함</button></div>
+            <nav class="section-nav" id="tocPanel" aria-label="논문 목차">
               <span>논문 목차</span>
-              <button class="active" data-target="overview"><i></i>한눈에 보기</button>
+              <button class="active" data-target="overview"><i></i>논문 정보</button>
               <button data-target="abstract"><i></i>초록 <b>2</b></button>
               <button data-target="intro"><i></i>서론 <b>3</b></button>
-              <button data-target="results"><i></i>연구 결과 <b>4</b></button>
+              <button data-target="results"><i></i>연구 결과 <b>3</b></button>
               <button data-target="visuals"><i></i>Figure · Table <b>3</b></button>
             </nav>
-            <div class="sidebar-help"><strong>번역이 어색한가요?</strong><span>문단마다 원문과 비교하고 직접 수정할 수 있어요.</span><button id="feedbackButton">의견 보내기</button></div>
+            <div class="mini-library" id="libraryPanel" hidden>
+              <div class="mini-library-head"><span>내 폴더</span><button id="addFolderMini" aria-label="새 폴더">＋</button></div>
+              <button class="folder-row active"><span>▣</span> 모든 논문 <b>12</b></button>
+              <button class="folder-row"><span>□</span> 읽는 중 <b>3</b></button>
+              <button class="folder-row"><span>□</span> AI · 머신러닝 <b>5</b></button>
+              <button class="folder-row"><span>□</span> 의료 · 바이오 <b>2</b></button>
+              <div class="recent-label">최근 분석</div>
+              <button class="mini-paper active"><i>PDF</i><span>Attention Is All You Need<small>방금 전 · 100%</small></span></button>
+              <button class="mini-paper"><i>PDF</i><span>BERT: Pre-training of Deep...<small>어제 · 100%</small></span></button>
+              <button class="mini-paper"><i>PDF</i><span>Deep Residual Learning...<small>3일 전 · 76%</small></span></button>
+              <button class="open-library" id="openLibrarySidebar">전체 논문함 열기</button>
+            </div>
+            <div class="sidebar-progress"><div><strong>34 / 34</strong><span>문단 번역 완료</span></div><span class="complete-bar"><i></i></span><small>마지막 저장 방금 전</small></div>
           </aside>
 
           <div class="result-main">
             <header class="result-header">
               <div class="breadcrumb"><button id="backButton">내 논문</button><span>/</span><strong id="headerPaperTitle">Attention Is All You Need</strong></div>
-              <div class="result-actions">
-                <span class="saved-state">✓ 자동 저장됨</span>
-                <button class="outline-button" id="previewButton">미리보기</button>
-                <button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button>
-              </div>
+              <div class="result-actions"><button class="outline-button" id="libraryButton">논문함</button><span class="saved-state">✓ 자동 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
             </header>
 
-            <div class="result-content">
-              <div class="demo-banner" id="demoBanner"><span>DEMO</span> 샘플 논문으로 생성한 예시 결과입니다. 실제 모델 연동 시 업로드한 논문 내용으로 바뀝니다.</div>
-
-              <section class="paper-heading" id="overview">
-                <span class="field-tag">COMPUTER SCIENCE · AI</span>
-                <h1>어텐션만으로 충분하다</h1>
-                <p class="original-title">Attention Is All You Need</p>
+            <div class="reader-page" id="readerPage">
+              <div class="demo-banner" id="demoBanner"><span>DEMO</span> 원문 PDF와 문단별 번역이 함께 보이는 샘플입니다. 업로드한 PDF는 왼쪽 뷰어에 그대로 표시됩니다.</div>
+              <section class="reader-title" id="overview">
+                <div><span class="field-tag">COMPUTER SCIENCE · AI</span><h1>어텐션만으로 충분하다</h1><p class="original-title">Attention Is All You Need</p></div>
                 <div class="paper-meta"><span>Vaswani et al.</span><i></i><span>2017</span><i></i><span>12쪽</span><i></i><span>문단 34개</span></div>
               </section>
 
-              <section class="summary-card">
-                <div class="summary-icon">✦</div>
-                <div><span class="card-label">한눈에 보는 핵심</span><p>순환 신경망이나 합성곱 없이 <strong>어텐션 메커니즘만으로 구성한 Transformer</strong>를 제안합니다. 병렬 처리가 가능해 학습 비용을 줄이면서도 기계 번역 성능을 크게 높였습니다.</p></div>
-              </section>
-
-              <div class="content-tabs" role="tablist">
-                <button class="active" role="tab" data-tab="translation">문단별 번역 <span>34</span></button>
-                <button role="tab" data-tab="visual">Figure · Table <span>3</span></button>
+              <div class="reader-tabs" role="tablist">
+                <button class="active" role="tab" data-tab="translation"><span class="tab-icon">▤</span> 원문 · 문단별 번역 <b>34</b></button>
+                <button role="tab" data-tab="visual"><span class="tab-icon">▦</span> Figure · Table 해설 <b>3</b></button>
               </div>
 
               <div id="translationTab" class="tab-panel">
-                <section class="paper-section" id="abstract">
-                  <div class="section-heading"><div><span>ABSTRACT</span><h2>초록</h2></div><button class="section-toggle">원문 함께 보기</button></div>
-                  <article class="paragraph-card">
-                    <div class="paragraph-index">01</div>
-                    <div class="paragraph-body">
-                      <p class="ko-text">기존의 지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반합니다. 가장 우수한 모델들은 어텐션 메커니즘을 통해 인코더와 디코더를 연결합니다.</p>
-                      <p class="en-text">The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder.</p>
-                      <div class="paragraph-tools"><span>용어 <b>시퀀스 변환</b> · <b>인코더</b> · <b>디코더</b></span><button>수정</button><button>복사</button></div>
+                <div class="reader-grid">
+                  <aside class="source-pane" aria-label="원문 PDF">
+                    <div class="pane-toolbar"><div><strong>원문 PDF</strong><span id="sourceFileName">attention-is-all-you-need.pdf</span></div><div class="page-control"><button aria-label="이전 페이지">‹</button><span>1 / 12</span><button aria-label="다음 페이지">›</button></div></div>
+                    <div class="pdf-frame-wrap"><iframe id="originalPdfFrame" title="업로드한 원문 PDF" hidden></iframe>
+                      <div class="sample-pdf" id="samplePdf">
+                        <div class="sample-pdf-head"><span>Attention Is All You Need</span><small>Ashish Vaswani · Google Brain</small></div>
+                        <div class="sample-columns"><div><h3>Abstract</h3><p><mark>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks</mark> that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism.</p><p><mark>We propose a new simple network architecture, the Transformer, based solely on attention mechanisms</mark>, dispensing with recurrence and convolutions entirely.</p><h3>1 Introduction</h3><p>Recurrent neural networks, long short-term memory and gated recurrent neural networks in particular, have been firmly established as state of the art approaches in sequence modeling.</p></div><div><div class="mini-figure"><span>Encoder</span><b>Attention</b><span>Decoder</span></div><p>The inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths.</p><p>Attention mechanisms have become an integral part of compelling sequence modeling and transduction models in various tasks.</p><small>Figure 1: The Transformer model architecture.</small></div></div>
+                        <span class="sample-page-number">1</span>
+                      </div>
                     </div>
-                  </article>
-                  <article class="paragraph-card">
-                    <div class="paragraph-index">02</div>
-                    <div class="paragraph-body">
-                      <p class="ko-text">본 연구에서는 순환 구조와 합성곱을 완전히 배제하고 어텐션 메커니즘에만 기반한 새로운 네트워크 구조인 Transformer를 제안합니다.</p>
-                      <p class="en-text">We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.</p>
-                      <div class="paragraph-tools"><span>핵심 주장 <b>Transformer 구조 제안</b></span><button>수정</button><button>복사</button></div>
-                    </div>
-                  </article>
-                </section>
+                    <div class="pdf-hint"><span></span> 오른쪽 문단을 선택하면 원문의 위치를 강조합니다.</div>
+                  </aside>
 
-                <section class="paper-section" id="intro">
-                  <div class="section-heading"><div><span>INTRODUCTION</span><h2>서론</h2></div><button class="section-toggle">원문 함께 보기</button></div>
-                  <article class="paragraph-card">
-                    <div class="paragraph-index">03</div>
-                    <div class="paragraph-body"><p class="ko-text">순환 신경망, 특히 장단기 기억 네트워크와 게이트 순환 신경망은 언어 모델링과 기계 번역 같은 시퀀스 모델링 문제에서 최첨단 접근법으로 확고히 자리 잡았습니다.</p><p class="en-text">Recurrent neural networks have been firmly established as state of the art approaches in sequence modeling.</p><div class="paragraph-tools"><span>배경 <b>기존 연구의 한계</b></span><button>수정</button><button>복사</button></div></div>
-                  </article>
-                </section>
+                  <main class="translation-stream" aria-label="문단별 한국어 번역">
+                    <div class="stream-toolbar"><div><strong>문단별 번역</strong><span>원문 바로 아래에 번역이 이어집니다</span></div><button id="collapseOriginals">원문 접기</button></div>
+
+                    <section class="stream-section" id="abstract"><div class="stream-section-title"><span>ABSTRACT</span><h2>초록</h2><b>2개 문단</b></div>
+                      <article class="segment-card active" data-page="1"><header><span class="segment-no">문단 01</span><span class="page-chip">p.1</span><button>•••</button></header><div class="source-block"><span>원문</span><p>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">기존의 지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반합니다. 가장 우수한 모델들은 어텐션 메커니즘을 통해 인코더와 디코더를 연결합니다.</p></div><footer><span>전문 용어 <b>시퀀스 변환</b> <b>인코더</b> <b>디코더</b></span><button>수정</button><button>복사</button></footer></article>
+                      <article class="segment-card" data-page="1"><header><span class="segment-no">문단 02</span><span class="page-chip">p.1</span><button>•••</button></header><div class="source-block"><span>원문</span><p>We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">본 연구에서는 순환 구조와 합성곱을 완전히 배제하고 어텐션 메커니즘에만 기반한 새로운 네트워크 구조인 Transformer를 제안합니다.</p></div><footer><span>핵심 주장 <b>Transformer 구조 제안</b></span><button>수정</button><button>복사</button></footer></article>
+                    </section>
+
+                    <section class="stream-section" id="intro"><div class="stream-section-title"><span>INTRODUCTION</span><h2>서론</h2><b>3개 문단</b></div>
+                      <article class="segment-card" data-page="1"><header><span class="segment-no">문단 03</span><span class="page-chip">p.1</span><button>•••</button></header><div class="source-block"><span>원문</span><p>Recurrent neural networks, long short-term memory and gated recurrent neural networks in particular, have been firmly established as state of the art approaches in sequence modeling and transduction problems.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">순환 신경망, 특히 장단기 기억 네트워크와 게이트 순환 신경망은 언어 모델링과 기계 번역 같은 시퀀스 모델링 문제에서 최첨단 접근법으로 확고히 자리 잡았습니다.</p></div><footer><span>배경 <b>기존 연구</b> <b>순환 신경망</b></span><button>수정</button><button>복사</button></footer></article>
+                      <article class="segment-card" data-page="1"><header><span class="segment-no">문단 04</span><span class="page-chip">p.1</span><button>•••</button></header><div class="source-block"><span>원문</span><p>The inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths, as memory constraints limit batching across examples.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">이러한 모델의 본질적인 순차 처리 특성은 학습 예제 내부의 병렬화를 가로막습니다. 시퀀스가 길어질수록 메모리 제약으로 배치 크기가 제한되기 때문에 이 문제는 더욱 심각해집니다.</p></div><footer><span>연구 문제 <b>병렬화 제약</b> <b>메모리 비용</b></span><button>수정</button><button>복사</button></footer></article>
+                      <article class="segment-card" data-page="2"><header><span class="segment-no">문단 05</span><span class="page-chip">p.2</span><button>•••</button></header><div class="source-block"><span>원문</span><p>Attention mechanisms have become an integral part of compelling sequence modeling and transduction models in various tasks, allowing modeling of dependencies without regard to their distance.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">어텐션 메커니즘은 다양한 작업의 시퀀스 모델링과 변환 모델에서 핵심 요소로 자리 잡았으며, 입력과 출력에서 거리에 관계없이 의존성을 모델링할 수 있게 합니다.</p></div><footer><span>핵심 개념 <b>어텐션</b> <b>장거리 의존성</b></span><button>수정</button><button>복사</button></footer></article>
+                    </section>
+
+                    <section class="stream-section" id="results"><div class="stream-section-title"><span>RESULTS</span><h2>연구 결과</h2><b>3개 문단</b></div>
+                      <article class="segment-card" data-page="8"><header><span class="segment-no">문단 26</span><span class="page-chip">p.8</span><button>•••</button></header><div class="source-block"><span>원문</span><p>On the WMT 2014 English-to-German translation task, the big transformer model outperforms the best previously reported models by more than 2.0 BLEU.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">WMT 2014 영어-독일어 번역 과제에서 대형 Transformer 모델은 기존 최고 성능 모델보다 BLEU 점수가 2.0 이상 높았습니다.</p></div><footer><span>주요 결과 <b>BLEU +2.0</b></span><button>수정</button><button>복사</button></footer></article>
+                      <article class="segment-card" data-page="8"><header><span class="segment-no">문단 27</span><span class="page-chip">p.8</span><button>•••</button></header><div class="source-block"><span>원문</span><p>Our model achieves a new state of the art BLEU score of 41.8 on the English-to-French translation task after training for 3.5 days on eight GPUs.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">영어-프랑스어 번역 과제에서는 8개의 GPU로 3.5일 동안 학습한 뒤 41.8 BLEU라는 새로운 최고 성능을 달성했습니다.</p></div><footer><span>학습 효율 <b>3.5일</b> <b>8 GPUs</b></span><button>수정</button><button>복사</button></footer></article>
+                      <article class="segment-card" data-page="9"><header><span class="segment-no">문단 28</span><span class="page-chip">p.9</span><button>•••</button></header><div class="source-block"><span>원문</span><p>The Transformer allows for significantly more parallelization and can reach a new state of the art in translation quality after being trained for as little as twelve hours.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">Transformer는 훨씬 높은 수준의 병렬 처리를 지원하며, 불과 12시간의 학습만으로도 번역 품질에서 새로운 최고 성능에 도달할 수 있습니다.</p></div><footer><span>결론 <b>병렬 학습</b> <b>12시간</b></span><button>수정</button><button>복사</button></footer></article>
+                    </section>
+                  </main>
+                </div>
               </div>
 
-              <div id="visualTab" class="tab-panel" hidden>
-                <section class="paper-section" id="visuals">
-                  <div class="section-heading"><div><span>VISUAL EVIDENCE</span><h2>Figure · Table 해설</h2></div><span class="analysis-count">3개 분석 완료</span></div>
-                  <article class="visual-card">
-                    <div class="figure-preview transformer-diagram"><div class="encoder">Encoder</div><div class="attention-core">Multi-Head<br/>Attention</div><div class="decoder">Decoder</div></div>
-                    <div class="visual-copy"><span class="visual-type">FIGURE 1 · MODEL ARCHITECTURE</span><h3>Transformer 전체 구조</h3><p>왼쪽 인코더와 오른쪽 디코더가 여러 층으로 반복되며, 각 층의 핵심은 멀티헤드 어텐션입니다. 순환 연결이 없어 모든 토큰을 동시에 처리할 수 있다는 점을 보여줍니다.</p><div class="result-callout"><strong>이 그림이 말하는 결과</strong><span>장거리 의존성을 직접 연결하면서도 병렬 학습이 가능한 구조입니다.</span></div></div>
-                  </article>
-                  <article class="visual-card table-card">
-                    <div class="table-preview"><div class="table-row header"><span>Model</span><span>BLEU</span><span>Cost</span></div><div class="table-row"><span>ConvS2S</span><span>25.16</span><span>1.5×</span></div><div class="table-row highlight"><span>Transformer</span><span>28.40</span><span>1.0×</span></div></div>
-                    <div class="visual-copy"><span class="visual-type">TABLE 2 · TRANSLATION PERFORMANCE</span><h3>영어–독일어 번역 성능</h3><p>Transformer는 비교 모델보다 높은 BLEU 점수를 기록하면서 학습 비용은 더 낮았습니다. 품질과 효율을 동시에 개선한 결과입니다.</p><div class="metric-row"><span><b>+3.24</b> BLEU 향상</span><span><b>33%</b> 비용 절감</span></div></div>
-                  </article>
-                </section>
-              </div>
-
-              <footer class="result-footer"><span>PaperKo 번역은 AI가 생성하므로 중요한 내용은 원문과 비교해 주세요.</span><button id="topButton">맨 위로</button></footer>
+              <div id="visualTab" class="tab-panel" hidden><section class="visual-section" id="visuals"><div class="section-heading"><div><span>VISUAL EVIDENCE</span><h2>Figure · Table이 말하는 결과</h2></div><span class="analysis-count">3개 분석 완료</span></div><div class="visual-grid"><article class="visual-card"><div class="figure-preview transformer-diagram"><div class="encoder">Encoder</div><div class="attention-core">Multi-Head<br/>Attention</div><div class="decoder">Decoder</div></div><div class="visual-copy"><span class="visual-type">FIGURE 1 · MODEL ARCHITECTURE</span><h3>Transformer 전체 구조</h3><p>인코더와 디코더가 여러 층으로 반복되며 각 층의 핵심은 멀티헤드 어텐션입니다. 순환 연결이 없어 모든 토큰을 동시에 처리할 수 있습니다.</p><div class="result-callout"><strong>이 그림이 말하는 결과</strong><span>장거리 의존성을 직접 연결하면서 병렬 학습이 가능한 구조입니다.</span></div></div></article><article class="visual-card table-card"><div class="table-preview"><div class="table-row header"><span>Model</span><span>BLEU</span><span>Cost</span></div><div class="table-row"><span>ConvS2S</span><span>25.16</span><span>1.5×</span></div><div class="table-row highlight"><span>Transformer</span><span>28.40</span><span>1.0×</span></div></div><div class="visual-copy"><span class="visual-type">TABLE 2 · TRANSLATION PERFORMANCE</span><h3>영어-독일어 번역 성능</h3><p>Transformer는 비교 모델보다 높은 BLEU 점수를 기록하면서 학습 비용은 더 낮았습니다.</p><div class="metric-row"><span><b>+3.24</b> BLEU 향상</span><span><b>33%</b> 비용 절감</span></div></div></article></div></section></div>
+              <footer class="result-footer"><span>AI 번역은 중요한 내용을 반드시 원문과 비교해 주세요.</span><button id="topButton">맨 위로</button></footer>
             </div>
+
+            <section class="library-page" id="libraryPage" hidden>
+              <div class="library-top"><div><span class="field-tag">PAPER LIBRARY</span><h1>내 논문함</h1><p>분석을 요청한 논문을 폴더별로 모아 보고, 이어서 읽을 수 있습니다.</p></div><div><button class="outline-button" id="closeLibrary">읽던 논문으로</button><button class="primary-small" id="addFolderButton">＋ 새 폴더</button></div></div>
+              <div class="library-stats"><div><span>전체 논문</span><strong>12</strong><small>이번 달 +4</small></div><div><span>분석 완료</span><strong>9</strong><small>75% 완료</small></div><div><span>읽는 중</span><strong>3</strong><small>이어서 읽기</small></div><div class="storage-stat"><span>사용 공간</span><strong>284 MB</strong><small>2 GB 중 14%</small></div></div>
+              <div class="folder-section"><div class="library-section-head"><div><h2>폴더</h2><span>주제별로 논문을 정리하세요</span></div><button>편집</button></div><div class="folder-grid"><button class="folder-card active"><span class="folder-icon">▰</span><div><strong>모든 논문</strong><small>12개의 논문</small></div><b>12</b></button><button class="folder-card"><span class="folder-icon">▰</span><div><strong>읽는 중</strong><small>최근 열어본 논문</small></div><b>3</b></button><button class="folder-card"><span class="folder-icon teal">▰</span><div><strong>AI · 머신러닝</strong><small>모델과 학습 연구</small></div><b>5</b></button><button class="folder-card"><span class="folder-icon violet">▰</span><div><strong>의료 · 바이오</strong><small>생명과학 논문</small></div><b>2</b></button></div></div>
+              <div class="papers-section"><div class="library-section-head"><div><h2>논문 목록</h2><span>최근 분석한 순서</span></div><div class="paper-filters"><button class="active">전체</button><button>완료</button><button>분석 중</button></div></div><div class="paper-table"><div class="paper-table-head"><span>논문</span><span>폴더</span><span>진행률</span><span>업데이트</span><span></span></div><button class="paper-row" data-open-paper><span class="paper-name"><i>PDF</i><span><strong>Attention Is All You Need</strong><small>Vaswani et al. · 12쪽 · 문단 34개</small></span></span><span class="folder-tag">AI · 머신러닝</span><span class="row-progress"><i><b style="width:100%"></b></i>100%</span><span>방금 전</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>BERT: Pre-training of Deep Bidirectional Transformers</strong><small>Devlin et al. · 16쪽 · 문단 51개</small></span></span><span class="folder-tag">AI · 머신러닝</span><span class="row-progress"><i><b style="width:100%"></b></i>100%</span><span>어제</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>Deep Residual Learning for Image Recognition</strong><small>He et al. · 9쪽 · 문단 28개</small></span></span><span class="folder-tag muted">읽는 중</span><span class="row-progress"><i><b style="width:76%"></b></i>76%</span><span>3일 전</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>Highly accurate protein structure prediction</strong><small>Jumper et al. · 15쪽 · Figure 6개</small></span></span><span class="folder-tag violet">의료 · 바이오</span><span class="row-progress"><i><b style="width:42%"></b></i>42%</span><span>5일 전</span><span>•••</span></button></div></div>
+            </section>
           </div>
         </section>
       </main>

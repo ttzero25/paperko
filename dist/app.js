@@ -1,7 +1,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-const state = { file: null, demo: true };
+const state = { file: null, demo: true, pdfUrl: null };
 const views = {
   upload: $("#uploadView"),
   processing: $("#processingView"),
@@ -37,7 +37,9 @@ function setFile(file) {
     showToast("파일 크기는 50MB 이하여야 해요.");
     return;
   }
+  if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
   state.file = file;
+  state.pdfUrl = URL.createObjectURL(file);
   state.demo = false;
   $("#fileName").textContent = file.name;
   $("#fileMeta").textContent = `${formatBytes(file.size)} · PDF 파일 확인 완료`;
@@ -54,6 +56,8 @@ dropzone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]
 
 $("#removeFile").addEventListener("click", () => {
   state.file = null;
+  if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
+  state.pdfUrl = null;
   $("#fileInput").value = "";
   $("#dropzone").hidden = false;
   $("#fileReady").hidden = true;
@@ -85,13 +89,22 @@ function runProcessing(demo = true) {
       bar.style.width = "100%";
       setTimeout(() => {
         $("#demoBanner").hidden = !demo;
+        $("#readerPage").hidden = false;
+        $("#libraryPage").hidden = true;
+        $("#originalPdfFrame").hidden = true;
+        $("#samplePdf").hidden = false;
+        $("#sourceFileName").textContent = "attention-is-all-you-need.pdf";
         if (!demo && state.file) {
           const title = state.file.name.replace(/\.pdf$/i, "");
           $("#headerPaperTitle").textContent = title;
-          $(".paper-heading h1").textContent = title;
+          $(".reader-title h1").textContent = title;
           $(".original-title").textContent = "업로드 파일 · 분석 연동 준비됨";
+          $("#sourceFileName").textContent = state.file.name;
+          $("#originalPdfFrame").src = state.pdfUrl;
+          $("#originalPdfFrame").hidden = false;
+          $("#samplePdf").hidden = true;
           $("#demoBanner").hidden = false;
-          $("#demoBanner").innerHTML = '<span>PREVIEW</span> 현재 공개 미리보기에서는 화면과 PDF 생성 흐름을 확인할 수 있습니다. 모델 키를 연결하면 이 영역이 실제 논문 분석으로 바뀝니다.';
+          $("#demoBanner").innerHTML = '<span>PREVIEW</span> 업로드한 원문 PDF를 왼쪽에 표시했습니다. 모델 API를 연결하면 오른쪽이 실제 문단 인식·번역 결과로 채워집니다.';
         }
         showView("result");
       }, 450);
@@ -115,55 +128,51 @@ $("#sampleButton").addEventListener("click", () => runProcessing(true));
 $("#startButton").addEventListener("click", () => runProcessing(false));
 
 function resetApp() {
+  if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
   state.file = null;
   state.demo = true;
+  state.pdfUrl = null;
   $("#fileInput").value = "";
   $("#dropzone").hidden = false;
   $("#fileReady").hidden = true;
   $("#startButton").disabled = true;
   $("#headerPaperTitle").textContent = "Attention Is All You Need";
-  $(".paper-heading h1").textContent = "어텐션만으로 충분하다";
+  $(".reader-title h1").textContent = "어텐션만으로 충분하다";
   $(".original-title").textContent = "Attention Is All You Need";
   showView("upload");
 }
 
 $("#newPaperButton").addEventListener("click", resetApp);
-$("#backButton").addEventListener("click", resetApp);
+$("#backButton").addEventListener("click", () => showLibrary(true));
 
-$$('.content-tabs button').forEach((button) => button.addEventListener("click", () => {
-  $$('.content-tabs button').forEach((item) => item.classList.toggle("active", item === button));
+$$('.reader-tabs button').forEach((button) => button.addEventListener("click", () => {
+  $$('.reader-tabs button').forEach((item) => item.classList.toggle("active", item === button));
   $("#translationTab").hidden = button.dataset.tab !== "translation";
   $("#visualTab").hidden = button.dataset.tab !== "visual";
 }));
 
-$$('.section-toggle').forEach((button) => button.addEventListener("click", () => {
-  const cards = $$('.paragraph-card', button.closest('.paper-section'));
-  const willShow = !cards.every((card) => card.classList.contains("show-original"));
-  cards.forEach((card) => card.classList.toggle("show-original", willShow));
-  button.textContent = willShow ? "원문 숨기기" : "원문 함께 보기";
-}));
-
 $$('.section-nav button').forEach((button) => button.addEventListener("click", () => {
   $$('.section-nav button').forEach((item) => item.classList.toggle("active", item === button));
+  showLibrary(false);
   if (button.dataset.target === "visuals") {
-    $('.content-tabs button[data-tab="visual"]').click();
+    $('.reader-tabs button[data-tab="visual"]').click();
   } else {
-    $('.content-tabs button[data-tab="translation"]').click();
+    $('.reader-tabs button[data-tab="translation"]').click();
   }
   document.getElementById(button.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }));
 
 $("#topButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 $("#helpButton").addEventListener("click", () => showToast("PDF를 업로드하거나 샘플 논문으로 전체 흐름을 체험해 보세요."));
-$("#feedbackButton").addEventListener("click", () => showToast("피드백 기능은 다음 버전에서 연결됩니다."));
-$("#previewButton").addEventListener("click", () => {
-  $('.content-tabs button[data-tab="translation"]').click();
-  $("#overview").scrollIntoView({ behavior: "smooth" });
-  showToast("한국어 PDF에 포함될 내용을 보여드리고 있어요.");
-});
 
-$$('.paragraph-tools button').forEach((button) => button.addEventListener("click", async () => {
-  const text = $('.ko-text', button.closest('.paragraph-card')).textContent;
+$$('.segment-card').forEach((card) => card.addEventListener("click", () => {
+  $$('.segment-card').forEach((item) => item.classList.toggle("active", item === card));
+  $(".page-control span").textContent = `${card.dataset.page} / 12`;
+}));
+
+$$('.segment-card footer button').forEach((button) => button.addEventListener("click", async (event) => {
+  event.stopPropagation();
+  const text = $('.translated-text', button.closest('.segment-card')).textContent;
   if (button.textContent === "복사") {
     await navigator.clipboard?.writeText(text);
     showToast("번역 문단을 복사했어요.");
@@ -172,9 +181,46 @@ $$('.paragraph-tools button').forEach((button) => button.addEventListener("click
   }
 }));
 
+$("#collapseOriginals").addEventListener("click", (event) => {
+  const collapsed = $("#translationTab").classList.toggle("originals-collapsed");
+  event.currentTarget.textContent = collapsed ? "원문 펼치기" : "원문 접기";
+});
+
+function showLibrary(open) {
+  $("#libraryPage").hidden = !open;
+  $("#readerPage").hidden = open;
+  $("#downloadButton").hidden = open;
+  $("#headerPaperTitle").textContent = open ? "내 논문함" : ($(".original-title").textContent === "Attention Is All You Need" ? "Attention Is All You Need" : $(".reader-title h1").textContent);
+  window.scrollTo(0, 0);
+}
+
+$("#libraryButton").addEventListener("click", () => showLibrary(true));
+$("#openLibrarySidebar").addEventListener("click", () => showLibrary(true));
+$("#closeLibrary").addEventListener("click", () => showLibrary(false));
+$("[data-open-paper]").addEventListener("click", () => showLibrary(false));
+
+$$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => {
+  $$('.sidebar-switch button').forEach((item) => item.classList.toggle("active", item === button));
+  $("#tocPanel").hidden = button.dataset.side !== "toc";
+  $("#libraryPanel").hidden = button.dataset.side !== "library";
+}));
+
+function addLocalFolder() {
+  const name = window.prompt("새 폴더 이름을 입력하세요.");
+  if (!name?.trim()) return;
+  const card = document.createElement("button");
+  card.className = "folder-card";
+  card.innerHTML = `<span class="folder-icon">▰</span><div><strong>${name.trim().replace(/[<>]/g, "")}</strong><small>새로 만든 폴더</small></div><b>0</b>`;
+  $(".folder-grid").append(card);
+  showToast(`‘${name.trim()}’ 폴더를 만들었어요.`);
+}
+
+$("#addFolderButton").addEventListener("click", addLocalFolder);
+$("#addFolderMini").addEventListener("click", () => { showLibrary(true); setTimeout(addLocalFolder, 50); });
+
 function buildExportDocument() {
   const exportRoot = $("#pdfExport");
-  const title = $(".paper-heading h1").textContent;
+  const title = $(".reader-title h1").textContent;
   const original = $(".original-title").textContent;
   exportRoot.innerHTML = `
     <div class="export-page"><section class="export-cover">
