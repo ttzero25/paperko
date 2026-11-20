@@ -1,0 +1,3 @@
+CREATE TABLE folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE papers (id TEXT PRIMARY KEY, title TEXT NOT NULL, folder_id TEXT REFERENCES folders(id), status TEXT NOT NULL DEFAULT 'uploaded', object_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE paragraphs (id TEXT PRIMARY KEY, paper_id TEXT NOT NULL REFERENCES papers(id), page INTEGER NOT NULL, position INTEGER NOT NULL, source TEXT NOT NULL, translation TEXT, UNIQUE(paper_id, position));

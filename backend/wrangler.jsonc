@@ -1,0 +1,8 @@
+{
+  "name": "paperko-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+  "vars": {"WEB_ORIGIN": "https://ttzero25.github.io"},
+  "d1_databases": [{"binding":"DB","database_name":"paperko","migrations_dir":"migrations"}],
+  "r2_buckets": [{"binding":"FILES","bucket_name":"paperko-private-files"}]
+}
