@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./library.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -95,7 +96,7 @@
           <aside class="result-sidebar">
             <div class="mini-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> PaperKo</div>
             <button class="new-paper-button" id="newPaperButton"><span>＋</span> 새 논문 번역</button>
-            <div class="sidebar-switch"><button class="active" data-side="toc">목차</button><button data-side="library">논문함</button></div>
+            <div class="sidebar-switch"><button class="active" data-side="reader">읽기</button><button data-side="library">논문함</button><button data-side="map">연결 지도</button></div>
             <nav class="section-nav" id="tocPanel" aria-label="논문 목차">
               <span>논문 목차</span>
               <button class="active" data-target="overview"><i></i>논문 정보</button>
@@ -104,16 +105,11 @@
               <button data-target="results"><i></i>연구 결과 <b>3</b></button>
               <button data-target="visuals"><i></i>Figure · Table <b>3</b></button>
             </nav>
-            <div class="mini-library" id="libraryPanel" hidden>
+            <div class="mini-library" id="libraryPanel">
               <div class="mini-library-head"><span>내 폴더</span><button id="addFolderMini" aria-label="새 폴더">＋</button></div>
-              <button class="folder-row active"><span>▣</span> 모든 논문 <b>12</b></button>
-              <button class="folder-row"><span>□</span> 읽는 중 <b>3</b></button>
-              <button class="folder-row"><span>□</span> AI · 머신러닝 <b>5</b></button>
-              <button class="folder-row"><span>□</span> 의료 · 바이오 <b>2</b></button>
+              <div id="miniFolderList"></div>
               <div class="recent-label">최근 분석</div>
-              <button class="mini-paper active"><i>PDF</i><span>Attention Is All You Need<small>방금 전 · 100%</small></span></button>
-              <button class="mini-paper"><i>PDF</i><span>BERT: Pre-training of Deep...<small>어제 · 100%</small></span></button>
-              <button class="mini-paper"><i>PDF</i><span>Deep Residual Learning...<small>3일 전 · 76%</small></span></button>
+              <div id="miniPaperList"></div>
               <button class="open-library" id="openLibrarySidebar">전체 논문함 열기</button>
             </div>
             <div class="sidebar-progress"><div><strong>34 / 34</strong><span>문단 번역 완료</span></div><span class="complete-bar"><i></i></span><small>마지막 저장 방금 전</small></div>
@@ -122,7 +118,7 @@
           <div class="result-main">
             <header class="result-header">
               <div class="breadcrumb"><button id="backButton">내 논문</button><span>/</span><strong id="headerPaperTitle">Attention Is All You Need</strong></div>
-              <div class="result-actions"><button class="outline-button" id="libraryButton">논문함</button><span class="saved-state">✓ 자동 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
+              <div class="result-actions"><button class="outline-button" id="libraryButton">논문함</button><button class="outline-button" id="mapButton">연결 지도</button><span class="saved-state">✓ 이 브라우저에 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
             </header>
 
             <div class="reader-page" id="readerPage">
@@ -179,10 +175,28 @@
             </div>
 
             <section class="library-page" id="libraryPage" hidden>
-              <div class="library-top"><div><span class="field-tag">PAPER LIBRARY</span><h1>내 논문함</h1><p>분석을 요청한 논문을 폴더별로 모아 보고, 이어서 읽을 수 있습니다.</p></div><div><button class="outline-button" id="closeLibrary">읽던 논문으로</button><button class="primary-small" id="addFolderButton">＋ 새 폴더</button></div></div>
-              <div class="library-stats"><div><span>전체 논문</span><strong>12</strong><small>이번 달 +4</small></div><div><span>분석 완료</span><strong>9</strong><small>75% 완료</small></div><div><span>읽는 중</span><strong>3</strong><small>이어서 읽기</small></div><div class="storage-stat"><span>사용 공간</span><strong>284 MB</strong><small>2 GB 중 14%</small></div></div>
-              <div class="folder-section"><div class="library-section-head"><div><h2>폴더</h2><span>주제별로 논문을 정리하세요</span></div><button>편집</button></div><div class="folder-grid"><button class="folder-card active"><span class="folder-icon">▰</span><div><strong>모든 논문</strong><small>12개의 논문</small></div><b>12</b></button><button class="folder-card"><span class="folder-icon">▰</span><div><strong>읽는 중</strong><small>최근 열어본 논문</small></div><b>3</b></button><button class="folder-card"><span class="folder-icon teal">▰</span><div><strong>AI · 머신러닝</strong><small>모델과 학습 연구</small></div><b>5</b></button><button class="folder-card"><span class="folder-icon violet">▰</span><div><strong>의료 · 바이오</strong><small>생명과학 논문</small></div><b>2</b></button></div></div>
-              <div class="papers-section"><div class="library-section-head"><div><h2>논문 목록</h2><span>최근 분석한 순서</span></div><div class="paper-filters"><button class="active">전체</button><button>완료</button><button>분석 중</button></div></div><div class="paper-table"><div class="paper-table-head"><span>논문</span><span>폴더</span><span>진행률</span><span>업데이트</span><span></span></div><button class="paper-row" data-open-paper><span class="paper-name"><i>PDF</i><span><strong>Attention Is All You Need</strong><small>Vaswani et al. · 12쪽 · 문단 34개</small></span></span><span class="folder-tag">AI · 머신러닝</span><span class="row-progress"><i><b style="width:100%"></b></i>100%</span><span>방금 전</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>BERT: Pre-training of Deep Bidirectional Transformers</strong><small>Devlin et al. · 16쪽 · 문단 51개</small></span></span><span class="folder-tag">AI · 머신러닝</span><span class="row-progress"><i><b style="width:100%"></b></i>100%</span><span>어제</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>Deep Residual Learning for Image Recognition</strong><small>He et al. · 9쪽 · 문단 28개</small></span></span><span class="folder-tag muted">읽는 중</span><span class="row-progress"><i><b style="width:76%"></b></i>76%</span><span>3일 전</span><span>•••</span></button><button class="paper-row"><span class="paper-name"><i>PDF</i><span><strong>Highly accurate protein structure prediction</strong><small>Jumper et al. · 15쪽 · Figure 6개</small></span></span><span class="folder-tag violet">의료 · 바이오</span><span class="row-progress"><i><b style="width:42%"></b></i>42%</span><span>5일 전</span><span>•••</span></button></div></div>
+              <div class="library-top"><div><span class="field-tag">PAPER LIBRARY</span><h1>내 논문함</h1><p>분석한 논문은 이 브라우저에 계속 쌓입니다. 폴더별로 모아 보고 언제든 다시 열어보세요.</p></div><div><button class="outline-button" id="closeLibrary">읽던 논문으로</button><button class="primary-small" id="addFolderButton">＋ 새 폴더</button></div></div>
+              <div class="library-stats"><div><span>전체 논문</span><strong id="totalPaperCount">0</strong><small id="monthlyPaperCount">이번 달 +0</small></div><div><span>분석 완료</span><strong id="completePaperCount">0</strong><small>번역 결과 보관</small></div><div><span>읽는 중</span><strong id="readingPaperCount">0</strong><small>이어서 읽기</small></div><div class="storage-stat"><span>연결 관계</span><strong id="relationCount">0</strong><small>공통 키워드 기반</small></div></div>
+              <div class="folder-section"><div class="library-section-head"><div><h2>폴더</h2><span>주제별로 논문을 정리하세요</span></div><button id="openMapFromLibrary">연결 지도로 보기</button></div><div class="folder-grid" id="folderGrid"></div></div>
+              <div class="papers-section"><div class="library-section-head"><div><h2>논문 목록</h2><span id="paperListCaption">최근 분석한 순서</span></div><div class="paper-filters"><button class="active" data-filter="all">전체</button><button data-filter="complete">완료</button><button data-filter="reading">읽는 중</button></div></div><div class="paper-table"><div class="paper-table-head"><span>논문</span><span>폴더</span><span>진행률</span><span>업데이트</span><span></span></div><div id="paperTableBody"></div></div></div>
+            </section>
+
+            <section class="knowledge-page" id="knowledgePage" hidden>
+              <div class="library-top"><div><span class="field-tag">RESEARCH GRAPH</span><h1>논문 연결 지도</h1><p>공통 키워드와 연구 분야를 기준으로 관련 논문을 이어 보여줍니다.</p></div><div><button class="outline-button" id="closeMap">읽던 논문으로</button><button class="primary-small" id="openLibraryFromMap">논문함 열기</button></div></div>
+              <div class="knowledge-layout">
+                <section class="graph-card">
+                  <div class="graph-toolbar"><div><strong>지식 그래프</strong><span>노드를 선택하면 연결 근거를 볼 수 있어요</span></div><div class="graph-legend"><span><i class="legend-ai"></i>AI</span><span><i class="legend-bio"></i>Bio</span><span><i class="legend-other"></i>Other</span></div></div>
+                  <div class="knowledge-canvas" id="knowledgeCanvas"><svg id="connectionLines" aria-hidden="true"></svg><div id="connectionNodes"></div><div class="graph-empty" id="graphEmpty" hidden>논문을 두 편 이상 분석하면 연결 지도가 만들어집니다.</div></div>
+                </section>
+                <aside class="relation-panel">
+                  <span class="relation-kicker">SELECTED PAPER</span>
+                  <h2 id="selectedPaperTitle">논문을 선택하세요</h2>
+                  <p id="selectedPaperMeta">그래프의 노드를 눌러 관련 논문과 공통 키워드를 확인할 수 있습니다.</p>
+                  <div class="selected-tags" id="selectedPaperTags"></div>
+                  <div class="relation-list-head"><strong>관련 논문</strong><span id="relatedPaperCount">0</span></div>
+                  <div class="relation-list" id="relatedPaperList"></div>
+                </aside>
+              </div>
             </section>
           </div>
         </section>

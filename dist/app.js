@@ -1,7 +1,46 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-const state = { file: null, demo: true, pdfUrl: null };
+const STORAGE_KEY = "paperko.library.v1";
+const state = {
+  file: null,
+  demo: true,
+  pdfUrl: null,
+  library: null,
+  activeFolder: "all",
+  paperFilter: "all",
+  selectedGraphId: null,
+  currentPaperId: "attention",
+};
+
+function seedLibrary() {
+  const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
+  return {
+    folders: ["AI · 머신러닝", "의료 · 바이오", "읽는 중"],
+    papers: [
+      { id: "attention", title: "Attention Is All You Need", authors: "Vaswani et al.", year: "2017", folder: "AI · 머신러닝", field: "컴퓨터과학·AI", status: "complete", progress: 100, updatedAt: ago(0), tags: ["transformer", "attention", "translation", "deep learning"] },
+      { id: "bert", title: "BERT: Pre-training of Deep Bidirectional Transformers", authors: "Devlin et al.", year: "2018", folder: "AI · 머신러닝", field: "컴퓨터과학·AI", status: "complete", progress: 100, updatedAt: ago(1), tags: ["transformer", "language model", "pre-training", "deep learning"] },
+      { id: "resnet", title: "Deep Residual Learning for Image Recognition", authors: "He et al.", year: "2015", folder: "읽는 중", field: "컴퓨터과학·AI", status: "reading", progress: 76, updatedAt: ago(3), tags: ["computer vision", "deep learning", "residual network"] },
+      { id: "alphafold", title: "Highly accurate protein structure prediction", authors: "Jumper et al.", year: "2021", folder: "의료 · 바이오", field: "의학·생명과학", status: "reading", progress: 42, updatedAt: ago(5), tags: ["protein", "structure prediction", "deep learning", "biology"] },
+    ],
+  };
+}
+
+function loadLibrary() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved?.papers && saved?.folders) return saved;
+  } catch (error) {
+    console.warn("Saved library could not be read", error);
+  }
+  const initial = seedLibrary();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+  return initial;
+}
+
+function saveLibrary() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.library));
+}
 const views = {
   upload: $("#uploadView"),
   processing: $("#processingView"),
@@ -106,6 +145,9 @@ function runProcessing(demo = true) {
           $("#demoBanner").hidden = false;
           $("#demoBanner").innerHTML = '<span>PREVIEW</span> 업로드한 원문 PDF를 왼쪽에 표시했습니다. 모델 API를 연결하면 오른쪽이 실제 문단 인식·번역 결과로 채워집니다.';
         }
+        if (!demo && state.file) upsertUploadedPaper();
+        renderLibrary();
+        showWorkspace("reader");
         showView("result");
       }, 450);
       return;
@@ -139,11 +181,12 @@ function resetApp() {
   $("#headerPaperTitle").textContent = "Attention Is All You Need";
   $(".reader-title h1").textContent = "어텐션만으로 충분하다";
   $(".original-title").textContent = "Attention Is All You Need";
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
   showView("upload");
 }
 
 $("#newPaperButton").addEventListener("click", resetApp);
-$("#backButton").addEventListener("click", () => showLibrary(true));
+$("#backButton").addEventListener("click", () => showWorkspace("library"));
 
 $$('.reader-tabs button').forEach((button) => button.addEventListener("click", () => {
   $$('.reader-tabs button').forEach((item) => item.classList.toggle("active", item === button));
@@ -153,7 +196,7 @@ $$('.reader-tabs button').forEach((button) => button.addEventListener("click", (
 
 $$('.section-nav button').forEach((button) => button.addEventListener("click", () => {
   $$('.section-nav button').forEach((item) => item.classList.toggle("active", item === button));
-  showLibrary(false);
+  showWorkspace("reader");
   if (button.dataset.target === "visuals") {
     $('.reader-tabs button[data-tab="visual"]').click();
   } else {
@@ -186,37 +229,180 @@ $("#collapseOriginals").addEventListener("click", (event) => {
   event.currentTarget.textContent = collapsed ? "원문 펼치기" : "원문 접기";
 });
 
-function showLibrary(open) {
-  $("#libraryPage").hidden = !open;
-  $("#readerPage").hidden = open;
-  $("#downloadButton").hidden = open;
-  $("#headerPaperTitle").textContent = open ? "내 논문함" : ($(".original-title").textContent === "Attention Is All You Need" ? "Attention Is All You Need" : $(".reader-title h1").textContent);
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+}
+
+function relativeTime(iso) {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  if (days === 0) return "방금 전";
+  if (days === 1) return "어제";
+  return `${days}일 전`;
+}
+
+function upsertUploadedPaper() {
+  const title = state.file.name.replace(/\.pdf$/i, "");
+  const field = $("#discipline").value === "자동 감지" ? "기타 연구" : $("#discipline").value;
+  const fieldTags = {
+    "컴퓨터과학·AI": ["deep learning", "artificial intelligence"],
+    "의학·생명과학": ["biology", "medical research"],
+    "공학·재료": ["engineering", "materials"],
+    "사회과학": ["social science", "human behavior"],
+    "기타 연구": ["research"],
+  };
+  const titleTags = title.toLowerCase().split(/[^a-z0-9가-힣]+/).filter((word) => word.length > 2).slice(0, 5);
+  const existing = state.library.papers.find((paper) => paper.title.toLowerCase() === title.toLowerCase());
+  const folder = field === "의학·생명과학" ? "의료 · 바이오" : field === "컴퓨터과학·AI" ? "AI · 머신러닝" : "읽는 중";
+  const paper = {
+    id: existing?.id || `paper-${Date.now()}`,
+    title,
+    authors: "업로드한 논문",
+    year: String(new Date().getFullYear()),
+    folder,
+    field,
+    status: "complete",
+    progress: 100,
+    updatedAt: new Date().toISOString(),
+    tags: [...new Set([...titleTags, ...fieldTags[field]])],
+  };
+  if (existing) Object.assign(existing, paper);
+  else state.library.papers.unshift(paper);
+  if (!state.library.folders.includes(folder)) state.library.folders.push(folder);
+  state.currentPaperId = paper.id;
+  saveLibrary();
+  showToast("분석한 논문을 내 논문함에 저장했어요.");
+}
+
+function paperRelations(papers = state.library.papers) {
+  const edges = [];
+  papers.forEach((paper, index) => papers.slice(index + 1).forEach((other) => {
+    const shared = paper.tags.filter((tag) => other.tags.includes(tag));
+    if (shared.length) edges.push({ source: paper.id, target: other.id, shared });
+  }));
+  return edges;
+}
+
+function folderCount(folder) {
+  return folder === "all" ? state.library.papers.length : state.library.papers.filter((paper) => paper.folder === folder).length;
+}
+
+function renderLibrary() {
+  const papers = [...state.library.papers].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const filtered = papers.filter((paper) => (state.activeFolder === "all" || paper.folder === state.activeFolder) && (state.paperFilter === "all" || paper.status === state.paperFilter));
+  const folders = ["all", ...state.library.folders];
+  const folderLabel = (folder) => folder === "all" ? "모든 논문" : folder;
+  $("#folderGrid").innerHTML = folders.map((folder, index) => `<button class="folder-card ${state.activeFolder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}"><span class="folder-icon ${index % 3 === 1 ? "teal" : index % 3 === 2 ? "violet" : ""}">▰</span><div><strong>${escapeHtml(folderLabel(folder))}</strong><small>${folder === "all" ? "전체 분석 기록" : "주제별 논문"}</small></div><b>${folderCount(folder)}</b></button>`).join("");
+  $("#miniFolderList").innerHTML = folders.slice(0, 4).map((folder) => `<button class="folder-row ${state.activeFolder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}"><span>▣</span>${escapeHtml(folderLabel(folder))}<b>${folderCount(folder)}</b></button>`).join("");
+  $("#miniPaperList").innerHTML = papers.slice(0, 3).map((paper) => `<button class="mini-paper ${state.currentPaperId === paper.id ? "active" : ""}" data-paper="${paper.id}"><i>PDF</i><span>${escapeHtml(paper.title)}<small>${relativeTime(paper.updatedAt)} · ${paper.progress}%</small></span></button>`).join("");
+  $("#paperTableBody").innerHTML = filtered.length ? filtered.map((paper) => `<button class="paper-row ${state.currentPaperId === paper.id ? "is-selected" : ""}" data-paper="${paper.id}"><span class="paper-name"><i>PDF</i><span><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.authors)} · ${paper.year} · ${paper.tags.length}개 키워드</small></span></span><span class="folder-tag ${paper.field.includes("생명") ? "violet" : paper.status === "reading" ? "muted" : ""}">${escapeHtml(paper.folder)}</span><span class="row-progress"><i><b style="width:${paper.progress}%"></b></i>${paper.progress}%</span><span>${relativeTime(paper.updatedAt)}</span><span class="row-actions">•••</span></button>`).join("") : '<div class="paper-table-empty">이 조건에 맞는 논문이 없습니다.</div>';
+  $("#paperListCaption").textContent = `${filtered.length}편 · 최근 분석한 순서`;
+  $("#totalPaperCount").textContent = papers.length;
+  $("#completePaperCount").textContent = papers.filter((paper) => paper.status === "complete").length;
+  $("#readingPaperCount").textContent = papers.filter((paper) => paper.status === "reading").length;
+  $("#relationCount").textContent = paperRelations().length;
+  const now = new Date();
+  $("#monthlyPaperCount").textContent = `이번 달 +${papers.filter((paper) => { const date = new Date(paper.updatedAt); return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear(); }).length}`;
+  $(".sidebar-progress strong").textContent = `${papers.filter((paper) => paper.status === "complete").length} / ${papers.length}`;
+  $(".sidebar-progress div span").textContent = "논문 분석 완료";
+  const percent = papers.length ? Math.round(papers.filter((paper) => paper.status === "complete").length / papers.length * 100) : 0;
+  $(".complete-bar i").style.width = `${percent}%`;
+}
+
+function graphColor(paper) {
+  if (paper.field.includes("AI")) return "#2f6fa7";
+  if (paper.field.includes("생명")) return "#7b62b3";
+  return "#1d9a8d";
+}
+
+function selectGraphPaper(id) {
+  state.selectedGraphId = id;
+  const paper = state.library.papers.find((item) => item.id === id);
+  if (!paper) return;
+  const related = paperRelations().filter((edge) => edge.source === id || edge.target === id).map((edge) => ({ paper: state.library.papers.find((item) => item.id === (edge.source === id ? edge.target : edge.source)), shared: edge.shared }));
+  $("#selectedPaperTitle").textContent = paper.title;
+  $("#selectedPaperMeta").textContent = `${paper.authors} · ${paper.year} · ${paper.folder}`;
+  $("#selectedPaperTags").innerHTML = paper.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+  $("#relatedPaperCount").textContent = related.length;
+  $("#relatedPaperList").innerHTML = related.length ? related.map(({ paper: item, shared }) => `<button class="relation-item" data-paper="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>공통 키워드 · ${escapeHtml(shared.join(", "))}</span></button>`).join("") : '<div class="relation-none">아직 직접 연결된 논문이 없습니다.</div>';
+  $$('.graph-node').forEach((node) => { const connected = related.some(({ paper: item }) => item.id === node.dataset.paper); node.classList.toggle("active", node.dataset.paper === id); node.classList.toggle("is-muted", node.dataset.paper !== id && !connected); });
+  $$('.graph-line').forEach((line) => line.classList.toggle("is-muted", line.dataset.source !== id && line.dataset.target !== id));
+}
+
+function renderGraph() {
+  const canvas = $("#knowledgeCanvas");
+  const papers = [...state.library.papers].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 12);
+  const edges = paperRelations(papers);
+  $("#graphEmpty").hidden = papers.length >= 2;
+  if (!papers.length) return;
+  const width = canvas.clientWidth || 820;
+  const height = canvas.clientHeight || 590;
+  const degrees = Object.fromEntries(papers.map((paper) => [paper.id, edges.filter((edge) => edge.source === paper.id || edge.target === paper.id).length]));
+  papers.sort((a, b) => degrees[b.id] - degrees[a.id]);
+  const positions = {};
+  papers.forEach((paper, index) => {
+    if (index === 0) positions[paper.id] = { x: width * .5, y: height * .48 };
+    else { const angle = (Math.PI * 2 * (index - 1)) / Math.max(1, papers.length - 1) - Math.PI / 2; const ring = index > 7 ? .42 : .34; positions[paper.id] = { x: width * (.5 + Math.cos(angle) * ring), y: height * (.5 + Math.sin(angle) * ring) }; }
+  });
+  $("#connectionLines").setAttribute("viewBox", `0 0 ${width} ${height}`);
+  $("#connectionLines").innerHTML = edges.map((edge) => `<line class="graph-line ${edge.shared.length > 1 ? "strong" : ""}" data-source="${edge.source}" data-target="${edge.target}" x1="${positions[edge.source].x}" y1="${positions[edge.source].y}" x2="${positions[edge.target].x}" y2="${positions[edge.target].y}" />`).join("");
+  $("#connectionNodes").innerHTML = papers.map((paper) => `<button class="graph-node" data-paper="${paper.id}" style="left:${positions[paper.id].x}px;top:${positions[paper.id].y}px;--node-color:${graphColor(paper)}"><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.field)}</span></button>`).join("");
+  selectGraphPaper(state.selectedGraphId && papers.some((paper) => paper.id === state.selectedGraphId) ? state.selectedGraphId : papers[0].id);
+}
+
+function openStoredPaper(id) {
+  const paper = state.library.papers.find((item) => item.id === id);
+  if (!paper) return;
+  state.currentPaperId = id;
+  $("#headerPaperTitle").textContent = paper.title;
+  $(".reader-title h1").textContent = paper.title;
+  $(".original-title").textContent = `${paper.authors} · ${paper.year}`;
+  $("#demoBanner").hidden = false;
+  $("#demoBanner").innerHTML = '<span>LIBRARY</span> 저장된 분석 기록을 열었습니다. 실제 문단 데이터 동기화는 백엔드 연동 단계에서 활성화됩니다.';
+  renderLibrary();
+  showWorkspace("reader");
+}
+
+function showWorkspace(name) {
+  $("#readerPage").hidden = name !== "reader";
+  $("#libraryPage").hidden = name !== "library";
+  $("#knowledgePage").hidden = name !== "map";
+  $("#downloadButton").hidden = name !== "reader";
+  $("#headerPaperTitle").textContent = name === "library" ? "내 논문함" : name === "map" ? "논문 연결 지도" : $(".reader-title h1").textContent;
+  $$('.sidebar-switch button').forEach((button) => button.classList.toggle("active", button.dataset.side === name));
+  $("#tocPanel").hidden = name !== "reader";
+  if (name === "library") renderLibrary();
+  if (name === "map") requestAnimationFrame(renderGraph);
+  history.replaceState(null, "", `#${name}`);
   window.scrollTo(0, 0);
 }
 
-$("#libraryButton").addEventListener("click", () => showLibrary(true));
-$("#openLibrarySidebar").addEventListener("click", () => showLibrary(true));
-$("#closeLibrary").addEventListener("click", () => showLibrary(false));
-$("[data-open-paper]").addEventListener("click", () => showLibrary(false));
-
-$$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => {
-  $$('.sidebar-switch button').forEach((item) => item.classList.toggle("active", item === button));
-  $("#tocPanel").hidden = button.dataset.side !== "toc";
-  $("#libraryPanel").hidden = button.dataset.side !== "library";
-}));
-
 function addLocalFolder() {
-  const name = window.prompt("새 폴더 이름을 입력하세요.");
-  if (!name?.trim()) return;
-  const card = document.createElement("button");
-  card.className = "folder-card";
-  card.innerHTML = `<span class="folder-icon">▰</span><div><strong>${name.trim().replace(/[<>]/g, "")}</strong><small>새로 만든 폴더</small></div><b>0</b>`;
-  $(".folder-grid").append(card);
-  showToast(`‘${name.trim()}’ 폴더를 만들었어요.`);
+  const name = window.prompt("새 폴더 이름을 입력하세요.")?.trim();
+  if (!name) return;
+  if (state.library.folders.some((folder) => folder.toLowerCase() === name.toLowerCase())) { showToast("이미 같은 이름의 폴더가 있어요."); return; }
+  state.library.folders.push(name.replace(/[<>]/g, ""));
+  saveLibrary();
+  renderLibrary();
+  showToast(`‘${name}’ 폴더를 만들었어요.`);
 }
 
+$("#libraryButton").addEventListener("click", () => showWorkspace("library"));
+$("#mapButton").addEventListener("click", () => showWorkspace("map"));
+$("#openLibrarySidebar").addEventListener("click", () => showWorkspace("library"));
+$("#closeLibrary").addEventListener("click", () => showWorkspace("reader"));
+$("#closeMap").addEventListener("click", () => showWorkspace("reader"));
+$("#openLibraryFromMap").addEventListener("click", () => showWorkspace("library"));
+$("#openMapFromLibrary").addEventListener("click", () => showWorkspace("map"));
+$$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => showWorkspace(button.dataset.side)));
+$("#folderGrid").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; renderLibrary(); });
+$("#miniFolderList").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; showWorkspace("library"); });
+$("#paperTableBody").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) openStoredPaper(button.dataset.paper); });
+$("#miniPaperList").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) openStoredPaper(button.dataset.paper); });
+$("#connectionNodes").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) selectGraphPaper(button.dataset.paper); });
+$("#relatedPaperList").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) selectGraphPaper(button.dataset.paper); });
+$$('.paper-filters button').forEach((button) => button.addEventListener("click", () => { state.paperFilter = button.dataset.filter; $$('.paper-filters button').forEach((item) => item.classList.toggle("active", item === button)); renderLibrary(); }));
 $("#addFolderButton").addEventListener("click", addLocalFolder);
-$("#addFolderMini").addEventListener("click", () => { showLibrary(true); setTimeout(addLocalFolder, 50); });
+$("#addFolderMini").addEventListener("click", () => { showWorkspace("library"); setTimeout(addLocalFolder, 50); });
 
 function buildExportDocument() {
   const exportRoot = $("#pdfExport");
@@ -277,3 +463,11 @@ $("#downloadButton").addEventListener("click", async () => {
     button.innerHTML = originalLabel;
   }
 });
+
+state.library = loadLibrary();
+renderLibrary();
+if (["#reader", "#library", "#map"].includes(location.hash)) {
+  const initialWorkspace = location.hash.slice(1);
+  showView("result");
+  showWorkspace(initialWorkspace);
+}
