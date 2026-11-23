@@ -3,6 +3,9 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const STORAGE_KEY = "paperko.library.v1";
 const HIGHLIGHT_KEY = "paperko.highlights.v1";
+const FILE_DB_NAME = "paperko-files";
+const FILE_STORE_NAME = "pdfs";
+const TRENDING_KEY = "paperko.trending.v1";
 const state = {
   file: null,
   demo: true,
@@ -46,6 +49,40 @@ function loadLibrary() {
 
 function saveLibrary() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.library));
+}
+
+function openFileDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(FILE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(FILE_STORE_NAME)) request.result.createObjectStore(FILE_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function savePdfFile(paperId, file) {
+  const database = await openFileDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(FILE_STORE_NAME, "readwrite");
+    transaction.objectStore(FILE_STORE_NAME).put(file, paperId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  database.close();
+}
+
+async function loadPdfFile(paperId) {
+  const database = await openFileDatabase();
+  const file = await new Promise((resolve, reject) => {
+    const request = database.transaction(FILE_STORE_NAME, "readonly").objectStore(FILE_STORE_NAME).get(paperId);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  return file;
 }
 
 function groupLinesByIndent(lines, { indentThreshold = 12, gapThreshold = 8 } = {}) {
@@ -130,6 +167,7 @@ function clearHighlights() {
   showToast("현재 논문의 형광펜 표시를 지웠어요.");
 }
 const views = {
+  home: $("#homeView"),
   upload: $("#uploadView"),
   processing: $("#processingView"),
   result: $("#resultView"),
@@ -137,7 +175,9 @@ const views = {
 
 function showView(name) {
   Object.entries(views).forEach(([key, element]) => { element.hidden = key !== name; });
-  $(".topbar").hidden = name === "result";
+  $(".topbar").hidden = name === "processing";
+  const activeNav = name === "home" ? "home" : name === "upload" ? "read" : name === "result" ? (location.hash.slice(1) || "read") : "";
+  $$('[data-main-nav]').forEach((button) => button.classList.toggle("active", button.dataset.mainNav === activeNav || (activeNav === "reader" && button.dataset.mainNav === "read")));
   window.scrollTo(0, 0);
 }
 
@@ -154,7 +194,7 @@ function formatBytes(bytes) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function setFile(file) {
+async function setFile(file) {
   if (!file) return;
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
     showToast("PDF 파일만 업로드할 수 있어요.");
@@ -173,6 +213,14 @@ function setFile(file) {
   $("#dropzone").hidden = true;
   $("#fileReady").hidden = false;
   $("#startButton").disabled = false;
+  const paperId = saveUploadedPaperDraft(file);
+  try {
+    await savePdfFile(paperId, file);
+    showToast("PDF를 Library에 자동 저장했어요.");
+  } catch (error) {
+    console.error(error);
+    showToast("Library 정보는 저장했지만 PDF 파일 저장 공간이 부족해요.");
+  }
 }
 
 const dropzone = $("#dropzone");
@@ -297,6 +345,12 @@ $$('.section-nav button').forEach((button) => button.addEventListener("click", (
 
 $("#topButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 $("#helpButton").addEventListener("click", () => showToast("PDF를 업로드하거나 샘플 논문으로 전체 흐름을 체험해 보세요."));
+$(".brand").addEventListener("click", (event) => { event.preventDefault(); history.replaceState(null, "", `${location.pathname}${location.search}`); showView("home"); renderHomeRecent(); });
+$("#homeReadButton").addEventListener("click", resetApp);
+$("#homeLibraryButton").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
+$("#homeAllPapers").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
+$("#collectTrending").addEventListener("click", collectTrendingPapers);
+$("#homeRecentPapers").addEventListener("click", (event) => { const button = event.target.closest("[data-home-paper]"); if (button) openStoredPaper(button.dataset.homePaper); });
 
 $$('.segment-card').forEach((card) => card.addEventListener("click", () => {
   $$('.segment-card').forEach((item) => item.classList.toggle("active", item === card));
@@ -330,8 +384,61 @@ function relativeTime(iso) {
   return `${days}일 전`;
 }
 
-function upsertUploadedPaper() {
-  const title = state.file.name.replace(/\.pdf$/i, "");
+function renderHomeRecent() {
+  const container = $("#homeRecentPapers");
+  if (!container || !state.library) return;
+  const papers = [...state.library.papers].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 4);
+  container.innerHTML = papers.length ? papers.map((paper) => `<button class="home-paper" data-home-paper="${paper.id}"><i>PDF</i><span><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.authors)} · ${relativeTime(paper.updatedAt)}</small></span><b>${paper.progress}%</b></button>`).join("") : '<div class="home-empty">Read에서 첫 논문을 올려보세요.</div>';
+}
+
+function savedTrendingPapers() {
+  try { return JSON.parse(localStorage.getItem(TRENDING_KEY)) || []; }
+  catch (error) { console.warn("Trending papers could not be read", error); return []; }
+}
+
+function renderTrending(papers = savedTrendingPapers()) {
+  const container = $("#trendingPapers");
+  if (!container) return;
+  container.innerHTML = papers.length ? papers.slice(0, 4).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.year} · 인용 ${paper.citations.toLocaleString()}</span></a>`).join("") : '<div class="home-empty">Collect를 눌러 최근 1년간 주목받은 논문을 수집하세요.</div>';
+}
+
+async function collectTrendingPapers() {
+  const button = $("#collectTrending");
+  const caption = $("#radarCaption");
+  button.classList.add("collecting");
+  button.textContent = "Collecting…";
+  caption.textContent = "OpenAlex 연구 데이터에서 최근 논문을 확인하고 있습니다.";
+  const today = new Date();
+  const from = new Date(today);
+  from.setFullYear(from.getFullYear() - 1);
+  const date = (value) => value.toISOString().slice(0, 10);
+  const endpoint = `https://api.openalex.org/works?filter=from_publication_date:${date(from)},to_publication_date:${date(today)},type:article,is_retracted:false&sort=cited_by_count:desc&per-page=8&select=id,display_name,publication_year,authorships,primary_location,cited_by_count`;
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) throw new Error(`OpenAlex ${response.status}`);
+    const payload = await response.json();
+    const papers = payload.results.map((work) => ({
+      title: work.display_name || "Untitled research",
+      authors: (work.authorships || []).slice(0, 2).map((item) => item.author?.display_name).filter(Boolean).join(", ") || "Unknown authors",
+      year: work.publication_year || today.getFullYear(),
+      citations: Number(work.cited_by_count || 0),
+      url: work.primary_location?.landing_page_url || work.id,
+    }));
+    localStorage.setItem(TRENDING_KEY, JSON.stringify(papers));
+    renderTrending(papers);
+    caption.textContent = `최근 1년 기준 · ${new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })} 수집`;
+  } catch (error) {
+    console.error(error);
+    caption.textContent = "수집에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.";
+    showToast("최근 논문을 불러오지 못했어요.");
+  } finally {
+    button.classList.remove("collecting");
+    button.textContent = "Collect";
+  }
+}
+
+function uploadedPaperDescriptor(file) {
+  const title = file.name.replace(/\.pdf$/i, "");
   const field = $("#discipline").value === "자동 감지" ? "기타 연구" : $("#discipline").value;
   const fieldTags = {
     "컴퓨터과학·AI": ["deep learning", "artificial intelligence"],
@@ -341,26 +448,40 @@ function upsertUploadedPaper() {
     "기타 연구": ["research"],
   };
   const titleTags = title.toLowerCase().split(/[^a-z0-9가-힣]+/).filter((word) => word.length > 2).slice(0, 5);
-  const existing = state.library.papers.find((paper) => paper.title.toLowerCase() === title.toLowerCase());
   const folder = field === "의학·생명과학" ? "의료 · 바이오" : field === "컴퓨터과학·AI" ? "AI · 머신러닝" : "읽는 중";
+  return { title, field, folder, tags: [...new Set([...titleTags, ...fieldTags[field]])] };
+}
+
+function saveUploadedPaperDraft(file) {
+  const descriptor = uploadedPaperDescriptor(file);
+  const existing = state.library.papers.find((paper) => paper.title.toLowerCase() === descriptor.title.toLowerCase());
   const paper = {
     id: existing?.id || `paper-${Date.now()}`,
-    title,
+    ...descriptor,
     authors: "업로드한 논문",
     year: String(new Date().getFullYear()),
-    folder,
-    field,
-    status: "complete",
-    progress: 100,
+    status: existing?.status || "reading",
+    progress: existing?.progress || 0,
     updatedAt: new Date().toISOString(),
-    tags: [...new Set([...titleTags, ...fieldTags[field]])],
   };
   if (existing) Object.assign(existing, paper);
   else state.library.papers.unshift(paper);
-  if (!state.library.folders.includes(folder)) state.library.folders.push(folder);
+  if (!state.library.folders.includes(paper.folder)) state.library.folders.push(paper.folder);
   state.currentPaperId = paper.id;
   saveLibrary();
-  showToast("Saved to My Library.");
+  renderLibrary();
+  return paper.id;
+}
+
+function upsertUploadedPaper() {
+  const descriptor = uploadedPaperDescriptor(state.file);
+  const existing = state.library.papers.find((paper) => paper.title.toLowerCase() === descriptor.title.toLowerCase());
+  if (!existing) return saveUploadedPaperDraft(state.file);
+  Object.assign(existing, descriptor, { status: "complete", progress: 100, updatedAt: new Date().toISOString() });
+  state.currentPaperId = existing.id;
+  saveLibrary();
+  showToast("Analysis saved to Library.");
+  return existing.id;
 }
 
 function paperRelations(papers = state.library.papers) {
@@ -439,7 +560,7 @@ function renderGraph() {
   selectGraphPaper(state.selectedGraphId && papers.some((paper) => paper.id === state.selectedGraphId) ? state.selectedGraphId : papers[0].id);
 }
 
-function openStoredPaper(id) {
+async function openStoredPaper(id) {
   const paper = state.library.papers.find((item) => item.id === id);
   if (!paper) return;
   state.currentPaperId = id;
@@ -447,9 +568,30 @@ function openStoredPaper(id) {
   $(".reader-title h1").textContent = paper.title;
   $(".original-title").textContent = `${paper.authors} · ${paper.year}`;
   $("#demoBanner").hidden = false;
-  $("#demoBanner").innerHTML = '<span>LIBRARY</span> 저장된 분석 기록을 열었습니다. 실제 문단 데이터 동기화는 백엔드 연동 단계에서 활성화됩니다.';
+  try {
+    const storedFile = await loadPdfFile(id);
+    if (storedFile) {
+      if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
+      state.pdfUrl = URL.createObjectURL(storedFile);
+      $("#originalPdfFrame").src = state.pdfUrl;
+      $("#originalPdfFrame").hidden = false;
+      $("#samplePdf").hidden = true;
+      $("#sourceFileName").textContent = storedFile.name || `${paper.title}.pdf`;
+      $("#demoBanner").innerHTML = '<span>LIBRARY</span> 이 브라우저에 자동 저장된 원문 PDF와 분석 기록을 열었습니다.';
+    } else {
+      $("#originalPdfFrame").hidden = true;
+      $("#samplePdf").hidden = false;
+      $("#sourceFileName").textContent = `${paper.title}.pdf`;
+      $("#demoBanner").innerHTML = '<span>LIBRARY</span> 저장된 분석 기록입니다. 이 샘플의 원문 PDF는 브라우저에 보관되어 있지 않습니다.';
+    }
+  } catch (error) {
+    console.error(error);
+    $("#originalPdfFrame").hidden = true;
+    $("#samplePdf").hidden = false;
+  }
   restoreHighlights(id);
   renderLibrary();
+  showView("result");
   showWorkspace("reader");
 }
 
@@ -464,6 +606,7 @@ function showWorkspace(name) {
   if (name === "library") renderLibrary();
   if (name === "map") requestAnimationFrame(renderGraph);
   history.replaceState(null, "", `#${name}`);
+  $$('[data-main-nav]').forEach((button) => button.classList.toggle("active", button.dataset.mainNav === (name === "reader" ? "read" : name)));
   window.scrollTo(0, 0);
 }
 
@@ -484,7 +627,13 @@ $("#closeLibrary").addEventListener("click", () => showWorkspace("reader"));
 $("#closeMap").addEventListener("click", () => showWorkspace("reader"));
 $("#openLibraryFromMap").addEventListener("click", () => showWorkspace("library"));
 $("#openMapFromLibrary").addEventListener("click", () => showWorkspace("map"));
-$$('[data-main-nav]').forEach((button) => button.addEventListener("click", () => { showView("result"); showWorkspace(button.dataset.mainNav); }));
+$$('[data-main-nav]').forEach((button) => button.addEventListener("click", () => {
+  const target = button.dataset.mainNav;
+  if (target === "home") { history.replaceState(null, "", `${location.pathname}${location.search}`); showView("home"); renderHomeRecent(); return; }
+  if (target === "read") { resetApp(); return; }
+  showView("result");
+  showWorkspace(target);
+}));
 $$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => showWorkspace(button.dataset.side)));
 $("#folderGrid").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; renderLibrary(); });
 $("#miniFolderList").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; showWorkspace("library"); });
@@ -566,8 +715,14 @@ state.library = loadLibrary();
 state.highlights = loadHighlights();
 restoreHighlights(state.currentPaperId);
 renderLibrary();
+renderHomeRecent();
+renderTrending();
 if (["#reader", "#library", "#map"].includes(location.hash)) {
   const initialWorkspace = location.hash.slice(1);
   showView("result");
   showWorkspace(initialWorkspace);
+} else if (location.hash === "#read") {
+  showView("upload");
+} else {
+  showView("home");
 }
