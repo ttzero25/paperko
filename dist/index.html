@@ -21,6 +21,10 @@
           <span>PaperKo</span>
           <span class="brand-beta">BETA</span>
         </a>
+        <nav class="topbar-nav" aria-label="PaperKo workspace">
+          <button type="button" data-main-nav="library">Library</button>
+          <button type="button" data-main-nav="map">Obsidian</button>
+        </nav>
         <div class="topbar-actions">
           <span class="privacy-note"><span class="privacy-icon" aria-hidden="true">◆</span> 파일은 분석 후 자동 삭제됩니다</span>
           <button class="icon-button" id="helpButton" aria-label="도움말">?</button>
@@ -96,7 +100,7 @@
           <aside class="result-sidebar">
             <div class="mini-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> PaperKo</div>
             <button class="new-paper-button" id="newPaperButton"><span>＋</span> 새 논문 번역</button>
-            <div class="sidebar-switch"><button class="active" data-side="reader">Reader</button><button data-side="library">Library</button><button data-side="map">Research Graph</button></div>
+            <div class="sidebar-switch"><button class="active" data-side="reader">Reader</button><button data-side="library">Library</button><button data-side="map">Obsidian</button></div>
             <nav class="section-nav" id="tocPanel" aria-label="논문 목차">
               <span>논문 목차</span>
               <button class="active" data-target="overview"><i></i>논문 정보</button>
@@ -118,7 +122,7 @@
           <div class="result-main">
             <header class="result-header">
               <div class="breadcrumb"><button id="backButton">내 논문</button><span>/</span><strong id="headerPaperTitle">Attention Is All You Need</strong></div>
-              <div class="result-actions"><button class="outline-button" id="libraryButton">Library</button><button class="outline-button" id="mapButton">Research Graph</button><span class="saved-state">✓ 이 브라우저에 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
+              <div class="result-actions"><button class="outline-button" id="libraryButton">Library</button><button class="outline-button" id="mapButton">Obsidian</button><span class="saved-state">✓ 이 브라우저에 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
             </header>
 
             <div class="reader-page" id="readerPage">
@@ -148,7 +152,7 @@
                   </aside>
 
                   <main class="translation-stream" aria-label="문단별 한국어 번역">
-                    <div class="stream-toolbar"><div><strong>문단별 번역</strong><span>원문 바로 아래에 번역이 이어집니다</span></div><button id="collapseOriginals">원문 접기</button></div>
+                    <div class="stream-toolbar"><div class="stream-title"><strong>문단별 번역</strong><span>첫 줄 들여쓰기와 문단 간격을 기준으로 묶습니다</span></div><div class="stream-actions"><div class="highlight-tools" aria-label="형광펜 색상"><span>Highlight</span><button class="highlight-color yellow" data-highlight="yellow" aria-label="노란색 형광펜"></button><button class="highlight-color mint" data-highlight="mint" aria-label="민트색 형광펜"></button><button class="highlight-color pink" data-highlight="pink" aria-label="분홍색 형광펜"></button><button class="clear-highlight" id="clearHighlights" type="button">Clear</button></div><button id="collapseOriginals">원문 접기</button></div></div>
 
                     <section class="stream-section" id="abstract"><div class="stream-section-title"><span>ABSTRACT</span><h2>초록</h2><b>2개 문단</b></div>
                       <article class="segment-card active" data-page="1"><header><span class="segment-no">문단 01</span><span class="page-chip">p.1</span><button>•••</button></header><div class="source-block"><span>원문</span><p>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism.</p></div><div class="translation-block"><span>한국어 번역</span><p class="translated-text">기존의 지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반합니다. 가장 우수한 모델들은 어텐션 메커니즘을 통해 인코더와 디코더를 연결합니다.</p></div><footer><span>전문 용어 <b>시퀀스 변환</b> <b>인코더</b> <b>디코더</b></span><button>수정</button><button>복사</button></footer></article>
@@ -182,7 +186,7 @@
             </section>
 
             <section class="knowledge-page" id="knowledgePage" hidden>
-              <div class="library-top"><div><span class="field-tag">RESEARCH GRAPH</span><h1>Research Graph</h1><p>공통 키워드와 연구 분야를 기준으로 관련 논문을 이어 보여줍니다.</p></div><div><button class="outline-button" id="closeMap">Back to Reader</button><button class="primary-small" id="openLibraryFromMap">Open Library</button></div></div>
+              <div class="library-top"><div><span class="field-tag">OBSIDIAN VIEW</span><h1>Obsidian</h1><p>공통 키워드와 연구 분야를 기준으로 관련 논문을 이어 보여줍니다.</p></div><div><button class="outline-button" id="closeMap">Back to Reader</button><button class="primary-small" id="openLibraryFromMap">Open Library</button></div></div>
               <div class="knowledge-layout">
                 <section class="graph-card">
                   <div class="graph-toolbar"><div><strong>지식 그래프</strong><span>노드를 선택하면 연결 근거를 볼 수 있어요</span></div><div class="graph-legend"><span><i class="legend-ai"></i>AI</span><span><i class="legend-bio"></i>Bio</span><span><i class="legend-other"></i>Other</span></div></div>

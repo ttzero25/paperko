@@ -2,6 +2,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const STORAGE_KEY = "paperko.library.v1";
+const HIGHLIGHT_KEY = "paperko.highlights.v1";
 const state = {
   file: null,
   demo: true,
@@ -11,7 +12,12 @@ const state = {
   paperFilter: "all",
   selectedGraphId: null,
   currentPaperId: "attention",
+  highlights: {},
 };
+const baseSegmentHtml = $$('.segment-card').map((card) => ({
+  source: $('.source-block p', card)?.innerHTML || "",
+  translation: $('.translation-block p', card)?.innerHTML || "",
+}));
 
 function seedLibrary() {
   const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -40,6 +46,71 @@ function loadLibrary() {
 
 function saveLibrary() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.library));
+}
+
+function groupLinesByIndent(lines, { indentThreshold = 12, gapThreshold = 8 } = {}) {
+  const paragraphs = [];
+  let current = [];
+  const flush = () => { if (current.length) paragraphs.push(current.join(" ").replace(/\s+/g, " ").trim()); current = []; };
+  lines.forEach((line) => {
+    const item = typeof line === "string" ? { text: line, indent: 0, gapBefore: 0 } : line;
+    const text = String(item?.text || "").trim();
+    if (!text) { flush(); return; }
+    if (current.length && (Number(item.indent || 0) >= indentThreshold || Number(item.gapBefore || 0) >= gapThreshold)) flush();
+    current.push(text);
+  });
+  flush();
+  return paragraphs;
+}
+window.PaperKoParagraphs = { groupLinesByIndent };
+
+function loadHighlights() {
+  try { return JSON.parse(localStorage.getItem(HIGHLIGHT_KEY)) || {}; }
+  catch (error) { console.warn("Saved highlights could not be read", error); return {}; }
+}
+
+function saveHighlights() {
+  state.highlights[state.currentPaperId] = $$('.segment-card').map((card) => ({
+    source: $('.source-block p', card)?.innerHTML || "",
+    translation: $('.translation-block p', card)?.innerHTML || "",
+  }));
+  localStorage.setItem(HIGHLIGHT_KEY, JSON.stringify(state.highlights));
+}
+
+function restoreHighlights(paperId) {
+  const saved = state.highlights[paperId];
+  $$('.segment-card').forEach((card, index) => {
+    const content = saved?.[index] || baseSegmentHtml[index];
+    if (!content) return;
+    const source = $('.source-block p', card);
+    const translation = $('.translation-block p', card);
+    if (source) source.innerHTML = content.source;
+    if (translation) translation.innerHTML = content.translation;
+  });
+}
+
+function applyHighlight(color) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) { showToast("강조할 문장을 먼저 드래그해 선택해 주세요."); return; }
+  const range = selection.getRangeAt(0);
+  const ancestor = range.commonAncestorContainer.nodeType === Node.TEXT_NODE ? range.commonAncestorContainer.parentElement : range.commonAncestorContainer;
+  const paragraph = ancestor?.closest?.('.source-block p, .translation-block p');
+  if (!paragraph || !paragraph.contains(range.startContainer) || !paragraph.contains(range.endContainer)) { showToast("한 문단 안의 텍스트만 선택할 수 있어요."); return; }
+  const mark = document.createElement("mark");
+  mark.className = `reader-highlight highlight-${color}`;
+  try { range.surroundContents(mark); }
+  catch (error) { const fragment = range.extractContents(); mark.append(fragment); range.insertNode(mark); }
+  paragraph.normalize();
+  selection.removeAllRanges();
+  saveHighlights();
+  showToast("형광펜 표시를 저장했어요.");
+}
+
+function clearHighlights() {
+  $$('.reader-highlight').forEach((mark) => mark.replaceWith(...mark.childNodes));
+  $$('.source-block p, .translation-block p').forEach((paragraph) => paragraph.normalize());
+  saveHighlights();
+  showToast("현재 논문의 형광펜 표시를 지웠어요.");
 }
 const views = {
   upload: $("#uploadView"),
@@ -104,14 +175,15 @@ $("#removeFile").addEventListener("click", () => {
 });
 
 const processCopy = [
-  ["논문의 구조를 파악하고 있어요", "제목, 초록, 본문과 참고문헌을 구분하는 중입니다."],
-  ["문단의 맥락을 살려 번역하고 있어요", "전문 용어와 앞뒤 문장의 연결을 함께 확인합니다."],
+  ["논문의 구조를 파악하고 있어요", "첫 줄 들여쓰기와 문단 간격을 기준으로 원문 문단을 묶는 중입니다."],
+  ["문단의 맥락을 살려 번역하고 있어요", "문장별로 끊지 않고 문단 전체의 의미와 전문 용어를 함께 확인합니다."],
   ["시각 자료의 결과를 읽고 있어요", "캡션과 본문을 연결해 Figure와 Table의 의미를 찾습니다."],
   ["읽기 좋은 한국어 PDF로 정리하고 있어요", "원문의 순서와 인용을 유지해 마지막 페이지를 구성합니다."],
 ];
 
 function runProcessing(demo = true) {
   state.demo = demo;
+  if (demo) state.currentPaperId = "attention";
   showView("processing");
   let step = 0;
   let progress = 7;
@@ -146,6 +218,7 @@ function runProcessing(demo = true) {
           $("#demoBanner").innerHTML = '<span>PREVIEW</span> 업로드한 원문 PDF를 왼쪽에 표시했습니다. 모델 API를 연결하면 오른쪽이 실제 문단 인식·번역 결과로 채워집니다.';
         }
         if (!demo && state.file) upsertUploadedPaper();
+        restoreHighlights(state.currentPaperId);
         renderLibrary();
         showWorkspace("reader");
         showView("result");
@@ -358,6 +431,7 @@ function openStoredPaper(id) {
   $(".original-title").textContent = `${paper.authors} · ${paper.year}`;
   $("#demoBanner").hidden = false;
   $("#demoBanner").innerHTML = '<span>LIBRARY</span> 저장된 분석 기록을 열었습니다. 실제 문단 데이터 동기화는 백엔드 연동 단계에서 활성화됩니다.';
+  restoreHighlights(id);
   renderLibrary();
   showWorkspace("reader");
 }
@@ -367,7 +441,7 @@ function showWorkspace(name) {
   $("#libraryPage").hidden = name !== "library";
   $("#knowledgePage").hidden = name !== "map";
   $("#downloadButton").hidden = name !== "reader";
-  $("#headerPaperTitle").textContent = name === "library" ? "My Library" : name === "map" ? "Research Graph" : $(".reader-title h1").textContent;
+  $("#headerPaperTitle").textContent = name === "library" ? "My Library" : name === "map" ? "Obsidian" : $(".reader-title h1").textContent;
   $$('.sidebar-switch button').forEach((button) => button.classList.toggle("active", button.dataset.side === name));
   $("#tocPanel").hidden = name !== "reader";
   if (name === "library") renderLibrary();
@@ -393,6 +467,7 @@ $("#closeLibrary").addEventListener("click", () => showWorkspace("reader"));
 $("#closeMap").addEventListener("click", () => showWorkspace("reader"));
 $("#openLibraryFromMap").addEventListener("click", () => showWorkspace("library"));
 $("#openMapFromLibrary").addEventListener("click", () => showWorkspace("map"));
+$$('[data-main-nav]').forEach((button) => button.addEventListener("click", () => { showView("result"); showWorkspace(button.dataset.mainNav); }));
 $$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => showWorkspace(button.dataset.side)));
 $("#folderGrid").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; renderLibrary(); });
 $("#miniFolderList").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; showWorkspace("library"); });
@@ -403,6 +478,12 @@ $("#relatedPaperList").addEventListener("click", (event) => { const button = eve
 $$('.paper-filters button').forEach((button) => button.addEventListener("click", () => { state.paperFilter = button.dataset.filter; $$('.paper-filters button').forEach((item) => item.classList.toggle("active", item === button)); renderLibrary(); }));
 $("#addFolderButton").addEventListener("click", addLocalFolder);
 $("#addFolderMini").addEventListener("click", () => { showWorkspace("library"); setTimeout(addLocalFolder, 50); });
+$$('[data-highlight]').forEach((button) => {
+  button.addEventListener("mousedown", (event) => event.preventDefault());
+  button.addEventListener("click", () => applyHighlight(button.dataset.highlight));
+});
+$("#clearHighlights").addEventListener("mousedown", (event) => event.preventDefault());
+$("#clearHighlights").addEventListener("click", clearHighlights);
 
 function buildExportDocument() {
   const exportRoot = $("#pdfExport");
@@ -465,6 +546,8 @@ $("#downloadButton").addEventListener("click", async () => {
 });
 
 state.library = loadLibrary();
+state.highlights = loadHighlights();
+restoreHighlights(state.currentPaperId);
 renderLibrary();
 if (["#reader", "#library", "#map"].includes(location.hash)) {
   const initialWorkspace = location.hash.slice(1);
