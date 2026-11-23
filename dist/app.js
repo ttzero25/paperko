@@ -93,17 +93,34 @@ function applyHighlight(color) {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !selection.rangeCount) { showToast("강조할 문장을 먼저 드래그해 선택해 주세요."); return; }
   const range = selection.getRangeAt(0);
-  const ancestor = range.commonAncestorContainer.nodeType === Node.TEXT_NODE ? range.commonAncestorContainer.parentElement : range.commonAncestorContainer;
-  const paragraph = ancestor?.closest?.('.source-block p, .translation-block p');
-  if (!paragraph || !paragraph.contains(range.startContainer) || !paragraph.contains(range.endContainer)) { showToast("한 문단 안의 텍스트만 선택할 수 있어요."); return; }
-  const mark = document.createElement("mark");
-  mark.className = `reader-highlight highlight-${color}`;
-  try { range.surroundContents(mark); }
-  catch (error) { const fragment = range.extractContents(); mark.append(fragment); range.insertNode(mark); }
-  paragraph.normalize();
+  const walker = document.createTreeWalker($("#translationTab"), NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const inPaperText = node.parentElement?.closest('.source-block p, .translation-block p');
+      return inPaperText && node.nodeValue?.trim() && range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const slices = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.nodeValue.length;
+    if (end > start) slices.push({ node, start, end });
+  }
+  if (!slices.length) { showToast("원문이나 번역문에서 강조할 텍스트를 선택해 주세요."); return; }
+  slices.reverse().forEach(({ node, start, end }) => {
+    const existing = node.parentElement?.closest('.reader-highlight');
+    if (existing) { existing.className = `reader-highlight highlight-${color}`; return; }
+    const selectedNode = node.splitText(start);
+    selectedNode.splitText(end - start);
+    const mark = document.createElement("mark");
+    mark.className = `reader-highlight highlight-${color}`;
+    selectedNode.replaceWith(mark);
+    mark.append(selectedNode);
+  });
+  $$('.source-block p, .translation-block p').forEach((paragraph) => paragraph.normalize());
   selection.removeAllRanges();
   saveHighlights();
-  showToast("형광펜 표시를 저장했어요.");
+  showToast(slices.length > 1 ? "여러 문단의 형광펜 표시를 저장했어요." : "형광펜 표시를 저장했어요.");
 }
 
 function clearHighlights() {
@@ -441,7 +458,7 @@ function showWorkspace(name) {
   $("#libraryPage").hidden = name !== "library";
   $("#knowledgePage").hidden = name !== "map";
   $("#downloadButton").hidden = name !== "reader";
-  $("#headerPaperTitle").textContent = name === "library" ? "My Library" : name === "map" ? "Obsidian" : $(".reader-title h1").textContent;
+  $("#headerPaperTitle").textContent = name === "library" ? "My Library" : name === "map" ? "Connect" : $(".reader-title h1").textContent;
   $$('.sidebar-switch button').forEach((button) => button.classList.toggle("active", button.dataset.side === name));
   $("#tocPanel").hidden = name !== "reader";
   if (name === "library") renderLibrary();
