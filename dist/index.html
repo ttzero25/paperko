@@ -86,6 +86,7 @@
             </div>
 
             <label class="check-row"><input type="checkbox" checked /><span class="fake-check">✓</span><span><strong>Figure · Table 해설 포함</strong><small>캡션과 본문 근거를 함께 분석합니다</small></span></label>
+            <p class="translation-notice">문단 번역 시 추출된 텍스트만 번역 서비스로 전송되며 PDF 원본은 브라우저에 보관됩니다.</p>
 
             <button class="primary-button" id="startButton" disabled>한국어 논문 만들기</button>
             <div class="divider"><span>먼저 둘러보고 싶다면</span></div>
@@ -153,8 +154,9 @@
               <div id="translationTab" class="tab-panel">
                 <div class="reader-grid">
                   <aside class="source-pane" aria-label="원문 PDF">
-                    <div class="pane-toolbar"><div><strong>원문 PDF</strong><span id="sourceFileName">attention-is-all-you-need.pdf</span></div><div class="page-control"><button aria-label="이전 페이지">‹</button><span>1 / 12</span><button aria-label="다음 페이지">›</button></div></div>
+                    <div class="pane-toolbar"><div><strong>원문 PDF</strong><span id="sourceFileName">attention-is-all-you-need.pdf</span></div><div class="page-control"><button id="prevPdfPage" aria-label="이전 페이지">‹</button><span id="pdfPageIndicator">1 / 12</span><button id="nextPdfPage" aria-label="다음 페이지">›</button></div></div>
                     <div class="pdf-frame-wrap"><iframe id="originalPdfFrame" title="업로드한 원문 PDF" hidden></iframe>
+                      <div class="pdf-canvas-view" id="pdfCanvasView" hidden><div class="pdf-canvas-stage" id="pdfCanvasStage"><canvas id="pdfCanvas"></canvas><div class="pdf-text-highlight" id="pdfTextHighlight" aria-hidden="true"></div></div></div>
                       <div class="sample-pdf" id="samplePdf">
                         <div class="sample-pdf-head"><span>Attention Is All You Need</span><small>Ashish Vaswani · Google Brain</small></div>
                         <div class="sample-columns"><div><h3>Abstract</h3><p><mark>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks</mark> that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism.</p><p><mark>We propose a new simple network architecture, the Transformer, based solely on attention mechanisms</mark>, dispensing with recurrence and convolutions entirely.</p><h3>1 Introduction</h3><p>Recurrent neural networks, long short-term memory and gated recurrent neural networks in particular, have been firmly established as state of the art approaches in sequence modeling.</p></div><div><div class="mini-figure"><span>Encoder</span><b>Attention</b><span>Decoder</span></div><p>The inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths.</p><p>Attention mechanisms have become an integral part of compelling sequence modeling and transduction models in various tasks.</p><small>Figure 1: The Transformer model architecture.</small></div></div>
@@ -223,6 +225,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div id="pdfExport" aria-hidden="true"></div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="./app.js"></script>

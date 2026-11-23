@@ -6,6 +6,8 @@ const HIGHLIGHT_KEY = "paperko.highlights.v1";
 const FILE_DB_NAME = "paperko-files";
 const FILE_STORE_NAME = "pdfs";
 const TRENDING_KEY = "paperko.trending.v1";
+const ANALYSIS_KEY = "paperko.analysis.v1";
+const TRANSLATION_CACHE_KEY = "paperko.translations.v1";
 const RESEARCH_SOURCES = {
   arxiv: { id: "S4306400194", label: "arXiv" },
   emnlp: { id: "S4363608991", label: "EMNLP" },
@@ -21,12 +23,16 @@ const state = {
   selectedGraphId: null,
   currentPaperId: "attention",
   trendingSource: "all",
+  pdfDocument: null,
+  currentPdfPage: 1,
+  analyzedParagraphs: [],
   highlights: {},
 };
 const baseSegmentHtml = $$('.segment-card').map((card) => ({
   source: $('.source-block p', card)?.innerHTML || "",
   translation: $('.translation-block p', card)?.innerHTML || "",
 }));
+const baseStreamSectionsHtml = $$('.translation-stream .stream-section').map((section) => section.outerHTML).join("");
 
 function seedLibrary() {
   const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -107,6 +113,280 @@ function groupLinesByIndent(lines, { indentThreshold = 12, gapThreshold = 8 } = 
 }
 window.PaperKoParagraphs = { groupLinesByIndent };
 
+const KNOWLEDGE_GLOSSARY = [
+  { pattern: /transformer/i, term: "Transformer", description: "어텐션을 중심으로 입력 토큰 사이의 관계를 병렬 처리하는 신경망 구조입니다." },
+  { pattern: /attention/i, term: "Attention", description: "현재 토큰을 이해할 때 입력의 어느 부분을 얼마나 참고할지 계산하는 메커니즘입니다." },
+  { pattern: /embedding/i, term: "Embedding", description: "단어나 개체를 의미 관계가 보존되는 숫자 벡터로 표현하는 방법입니다." },
+  { pattern: /token/i, term: "Token", description: "모델이 텍스트를 처리하기 위해 나눈 기본 단위로, 단어 또는 단어 조각일 수 있습니다." },
+  { pattern: /pre-?train/i, term: "Pre-training", description: "대규모 데이터로 일반적인 패턴을 먼저 학습하는 단계입니다." },
+  { pattern: /fine-?tun/i, term: "Fine-tuning", description: "사전 학습된 모델을 특정 과제나 데이터에 맞게 추가 학습하는 과정입니다." },
+  { pattern: /inference/i, term: "Inference", description: "학습된 모델이 새로운 입력을 받아 예측이나 생성을 수행하는 단계입니다." },
+  { pattern: /benchmark/i, term: "Benchmark", description: "모델이나 방법의 성능을 동일한 조건에서 비교하기 위한 데이터셋과 평가 절차입니다." },
+  { pattern: /dataset|corpus/i, term: "Dataset · Corpus", description: "학습 또는 평가에 사용하는 구조화된 데이터 모음입니다." },
+  { pattern: /ablation/i, term: "Ablation study", description: "구성 요소를 하나씩 제거해 각 요소가 결과에 미치는 영향을 확인하는 실험입니다." },
+  { pattern: /loss function|objective/i, term: "Loss function", description: "모델의 예측과 정답 사이의 오차를 수치화해 학습 방향을 정하는 함수입니다." },
+  { pattern: /gradient/i, term: "Gradient", description: "손실을 줄이기 위해 모델 파라미터를 어느 방향으로 바꿀지 나타내는 변화율입니다." },
+  { pattern: /convolution/i, term: "Convolution", description: "국소 패턴을 공유 가중치로 추출하는 연산으로 이미지와 시계열 처리에 널리 쓰입니다." },
+  { pattern: /recurrent|RNN/i, term: "Recurrent network", description: "이전 단계의 상태를 다음 단계로 전달하며 순차 데이터를 처리하는 신경망입니다." },
+];
+
+function loadAnalyses() {
+  try { return JSON.parse(localStorage.getItem(ANALYSIS_KEY)) || {}; }
+  catch (error) { console.warn("Saved analyses could not be read", error); return {}; }
+}
+
+function saveCurrentAnalysis() {
+  if (!state.currentPaperId || !state.analyzedParagraphs.length) return;
+  try {
+    const analyses = loadAnalyses();
+    analyses[state.currentPaperId] = state.analyzedParagraphs;
+    localStorage.setItem(ANALYSIS_KEY, JSON.stringify(analyses));
+  } catch (error) {
+    console.warn("Paragraph analysis could not be persisted", error);
+  }
+}
+
+function relatedKnowledge(text) {
+  return KNOWLEDGE_GLOSSARY.filter((item) => item.pattern.test(text)).slice(0, 4);
+}
+
+function enhanceSampleKnowledge() {
+  $$('.segment-card:not(.analyzed-segment)').forEach((card) => {
+    if ($('.knowledge-panel', card)) return;
+    const source = $('.source-block p', card)?.textContent || "";
+    const knowledge = relatedKnowledge(source);
+    if (!knowledge.length) return;
+    const panel = document.createElement("div");
+    panel.className = "knowledge-panel";
+    panel.hidden = true;
+    panel.innerHTML = knowledge.map((item) => `<article><strong>${escapeHtml(item.term)}</strong><p>${escapeHtml(item.description)}</p></article>`).join("");
+    card.querySelector("footer").before(panel);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "knowledge-toggle";
+    button.textContent = "기초 용어";
+    card.querySelector("footer").prepend(button);
+  });
+}
+
+function lineText(items) {
+  return items.sort((a, b) => a.x - b.x).reduce((text, item) => {
+    if (!text) return item.text;
+    if (text.endsWith("-") && /^[a-z]/i.test(item.text)) return `${text.slice(0, -1)}${item.text}`;
+    return `${text} ${item.text}`;
+  }, "").replace(/\s+([,.;:!?])/g, "$1").trim();
+}
+
+function pdfItemsToParagraphs(items, pageNumber, pageWidth) {
+  const normalized = items.map((item) => ({ text: String(item.str || "").trim(), x: item.transform?.[4] || 0, y: item.transform?.[5] || 0, width: Math.max(item.width || 0, 2), height: Math.max(Math.abs(item.transform?.[3] || item.height || 10), 6) })).filter((item) => item.text);
+  const rows = [];
+  normalized.forEach((item) => {
+    const row = rows.find((candidate) => Math.abs(candidate.y - item.y) <= Math.max(2.5, item.height * .3));
+    if (row) { row.items.push(item); row.y = (row.y + item.y) / 2; }
+    else rows.push({ y: item.y, items: [item] });
+  });
+  const lines = [];
+  rows.forEach((row) => {
+    const sorted = row.items.sort((a, b) => a.x - b.x);
+    let group = [];
+    sorted.forEach((item) => {
+      const previous = group[group.length - 1];
+      if (previous && item.x - (previous.x + previous.width) > Math.max(52, previous.height * 5)) {
+        lines.push(group);
+        group = [];
+      }
+      group.push(item);
+    });
+    if (group.length) lines.push(group);
+  });
+  const mapped = lines.map((group) => {
+    const x = Math.min(...group.map((item) => item.x));
+    const right = Math.max(...group.map((item) => item.x + item.width));
+    const y = Math.min(...group.map((item) => item.y));
+    const height = Math.max(...group.map((item) => item.height));
+    const width = right - x;
+    const column = width > pageWidth * .62 ? "wide" : x + width / 2 < pageWidth / 2 ? "left" : "right";
+    return { text: lineText(group), x, y, width, height, column };
+  });
+  const byY = (a, b) => b.y - a.y || a.x - b.x;
+  const wide = mapped.filter((line) => line.column === "wide").sort(byY);
+  const left = mapped.filter((line) => line.column === "left").sort(byY);
+  const right = mapped.filter((line) => line.column === "right").sort(byY);
+  const ordered = left.length > 5 && right.length > 5 ? [...wide, ...left, ...right] : mapped.sort(byY);
+  const paragraphs = [];
+  let current = null;
+  ordered.forEach((line) => {
+    if (!line.text) return;
+    const verticalGap = current ? Math.abs(current.lastY - line.y) : 0;
+    const changedColumn = current && current.column !== line.column;
+    const indented = current && line.x - current.baseX > Math.max(11, line.height * .8);
+    const separated = current && verticalGap > Math.max(18, line.height * 1.7);
+    if (!current || changedColumn || indented || separated) {
+      current = { page: pageNumber, text: line.text, boxes: [{ x: line.x, y: line.y, width: line.width, height: line.height }], baseX: line.x, lastY: line.y, column: line.column };
+      paragraphs.push(current);
+    } else {
+      current.text = current.text.endsWith("-") ? `${current.text.slice(0, -1)}${line.text}` : `${current.text} ${line.text}`;
+      current.boxes.push({ x: line.x, y: line.y, width: line.width, height: line.height });
+      current.lastY = line.y;
+    }
+  });
+  return paragraphs.filter((paragraph) => paragraph.text.length >= 35 && /[A-Za-z가-힣]/.test(paragraph.text)).map((paragraph) => ({ page: paragraph.page, source: paragraph.text.replace(/\s+/g, " ").trim(), translation: "", translationStatus: "pending", boxes: paragraph.boxes, knowledge: relatedKnowledge(paragraph.text) }));
+}
+
+async function loadPdfDocument(file) {
+  if (!window.pdfjsLib) throw new Error("PDF.js is unavailable");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  state.pdfDocument = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  state.currentPdfPage = 1;
+  return state.pdfDocument;
+}
+
+async function extractPdfParagraphs(file) {
+  const document = await loadPdfDocument(file);
+  const paragraphs = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages && paragraphs.length < 160; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const viewport = page.getViewport({ scale: 1 });
+    paragraphs.push(...pdfItemsToParagraphs(content.items, pageNumber, viewport.width));
+  }
+  return paragraphs.slice(0, 160);
+}
+
+function utf8Length(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+function translationChunks(text, limit = 440) {
+  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  const chunks = [];
+  let current = "";
+  sentences.forEach((sentence) => {
+    const candidate = `${current} ${sentence}`.trim();
+    if (utf8Length(candidate) <= limit) { current = candidate; return; }
+    if (current) chunks.push(current);
+    const words = sentence.trim().split(/\s+/);
+    current = "";
+    words.forEach((word) => {
+      const next = `${current} ${word}`.trim();
+      if (utf8Length(next) > limit && current) { chunks.push(current); current = word; }
+      else current = next;
+    });
+  });
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function translateText(text) {
+  const cache = (() => { try { return JSON.parse(localStorage.getItem(TRANSLATION_CACHE_KEY)) || {}; } catch { return {}; } })();
+  if (cache[text]) return cache[text];
+  const translated = [];
+  for (const chunk of translationChunks(text)) {
+    const params = new URLSearchParams({ q: chunk, langpair: "en|ko", mt: "1" });
+    const response = await fetch(`https://api.mymemory.translated.net/get?${params}`);
+    const payload = await response.json();
+    if (!response.ok || payload.responseStatus >= 400 || !payload.responseData?.translatedText) throw new Error(payload.responseDetails || "Translation failed");
+    translated.push(payload.responseData.translatedText);
+  }
+  const result = translated.join(" ").trim();
+  cache[text] = result;
+  localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
+  return result;
+}
+
+function paragraphCard(paragraph, index) {
+  const knowledge = paragraph.knowledge?.length ? paragraph.knowledge.map((item) => `<article><strong>${escapeHtml(item.term)}</strong><p>${escapeHtml(item.description)}</p></article>`).join("") : '<p class="knowledge-empty">이 문단에서 별도의 기초 용어를 찾지 못했습니다.</p>';
+  const translation = paragraph.translation ? escapeHtml(paragraph.translation) : paragraph.translationStatus === "loading" ? "문단의 맥락을 유지해 번역하고 있습니다…" : "아직 번역하지 않은 문단입니다.";
+  return `<article class="segment-card analyzed-segment ${index === 0 ? "active" : ""}" data-page="${paragraph.page}" data-paragraph-index="${index}"><header><span class="segment-no">문단 ${String(index + 1).padStart(2, "0")}</span><span class="page-chip">p.${paragraph.page}</span><span class="mapping-ready">원문 위치 연결됨</span></header><div class="source-block"><span>원문</span><p>${escapeHtml(paragraph.source)}</p></div><div class="translation-block ${paragraph.translation ? "" : "is-pending"}"><span>한국어 번역</span><p class="translated-text">${translation}</p>${paragraph.translationStatus === "pending" || paragraph.translationStatus === "error" ? `<button class="translate-paragraph" data-translate-index="${index}">${paragraph.translationStatus === "error" ? "다시 번역" : "이 문단 번역"}</button>` : ""}</div><div class="knowledge-panel" hidden>${knowledge}</div><footer><span>문단 단위 · 원문 p.${paragraph.page}</span><button class="knowledge-toggle" type="button">기초 용어</button><button class="copy-translation" type="button">복사</button></footer></article>`;
+}
+
+function renderAnalyzedParagraphs(paragraphs) {
+  state.analyzedParagraphs = paragraphs;
+  const stream = $(".translation-stream");
+  $$(".stream-section", stream).forEach((section) => section.remove());
+  stream.insertAdjacentHTML("beforeend", `<section class="stream-section analyzed-section" id="abstract"><div class="stream-section-title"><span>EXTRACTED PARAGRAPHS</span><h2>문단별 원문 · 번역</h2><b>${paragraphs.length}개 문단</b></div>${paragraphs.map(paragraphCard).join("")}</section>`);
+  $('.reader-tabs button[data-tab="translation"] b').textContent = paragraphs.length;
+  $(".sidebar-progress strong").textContent = `${paragraphs.filter((item) => item.translation).length} / ${paragraphs.length}`;
+  $(".sidebar-progress div span").textContent = "문단 번역 완료";
+}
+
+function restoreSampleStream() {
+  const stream = $(".translation-stream");
+  $$(".stream-section", stream).forEach((section) => section.remove());
+  stream.insertAdjacentHTML("beforeend", baseStreamSectionsHtml);
+  state.analyzedParagraphs = [];
+  enhanceSampleKnowledge();
+}
+
+async function translateParagraphAt(index) {
+  const paragraph = state.analyzedParagraphs[index];
+  if (!paragraph || paragraph.translationStatus === "loading") return;
+  paragraph.translationStatus = "loading";
+  renderAnalyzedParagraphs(state.analyzedParagraphs);
+  try {
+    paragraph.translation = await translateText(paragraph.source);
+    paragraph.translationStatus = "complete";
+  } catch (error) {
+    console.error(error);
+    paragraph.translationStatus = "error";
+    showToast("번역 사용량이 초과되었거나 네트워크 연결이 불안정합니다.");
+  }
+  saveCurrentAnalysis();
+  updateTranslationProgress();
+  renderAnalyzedParagraphs(state.analyzedParagraphs);
+}
+
+async function analyzeUploadedPdf(file) {
+  const paragraphs = await extractPdfParagraphs(file);
+  if (!paragraphs.length) throw new Error("No extractable text found in PDF");
+  state.analyzedParagraphs = paragraphs;
+  for (let index = 0; index < Math.min(5, paragraphs.length); index += 1) {
+    try { paragraphs[index].translation = await translateText(paragraphs[index].source); paragraphs[index].translationStatus = "complete"; }
+    catch (error) { console.warn("Initial paragraph translation failed", error); paragraphs[index].translationStatus = "error"; break; }
+  }
+  saveCurrentAnalysis();
+  return paragraphs;
+}
+
+async function renderPdfPage(pageNumber) {
+  if (!state.pdfDocument) return;
+  const page = await state.pdfDocument.getPage(Math.min(Math.max(1, pageNumber), state.pdfDocument.numPages));
+  state.currentPdfPage = page.pageNumber;
+  const baseViewport = page.getViewport({ scale: 1 });
+  const available = Math.max(320, $("#pdfCanvasView").clientWidth - 12);
+  const scale = Math.min(1.45, available / baseViewport.width);
+  const viewport = page.getViewport({ scale });
+  state.pdfViewport = viewport;
+  const canvas = $("#pdfCanvas");
+  const stage = $("#pdfCanvasStage");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  stage.style.width = `${viewport.width}px`;
+  stage.style.height = `${viewport.height}px`;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  $("#pdfPageIndicator").textContent = `${state.currentPdfPage} / ${state.pdfDocument.numPages}`;
+  $("#prevPdfPage").disabled = state.currentPdfPage <= 1;
+  $("#nextPdfPage").disabled = state.currentPdfPage >= state.pdfDocument.numPages;
+  $("#pdfTextHighlight").innerHTML = "";
+}
+
+function drawPdfHighlight(paragraph) {
+  const layer = $("#pdfTextHighlight");
+  if (!state.pdfViewport || !paragraph) return;
+  layer.innerHTML = paragraph.boxes.map((box) => {
+    const [x1, y1, x2, y2] = state.pdfViewport.convertToViewportRectangle([box.x, box.y, box.x + box.width, box.y + box.height]);
+    const left = Math.min(x1, x2) - 3;
+    const top = Math.min(y1, y2) - 3;
+    return `<i style="left:${left}px;top:${top}px;width:${Math.abs(x2 - x1) + 6}px;height:${Math.abs(y2 - y1) + 6}px"></i>`;
+  }).join("");
+}
+
+async function highlightPdfParagraph(paragraph) {
+  if (!paragraph || !state.pdfDocument) return;
+  if (state.currentPdfPage !== paragraph.page) await renderPdfPage(paragraph.page);
+  drawPdfHighlight(paragraph);
+}
+
 function loadHighlights() {
   try { return JSON.parse(localStorage.getItem(HIGHLIGHT_KEY)) || {}; }
   catch (error) { console.warn("Saved highlights could not be read", error); return {}; }
@@ -123,7 +403,7 @@ function saveHighlights() {
 function restoreHighlights(paperId) {
   const saved = state.highlights[paperId];
   $$('.segment-card').forEach((card, index) => {
-    const content = saved?.[index] || baseSegmentHtml[index];
+    const content = saved?.[index] || (paperId === "attention" ? baseSegmentHtml[index] : null);
     if (!content) return;
     const source = $('.source-block p', card);
     const translation = $('.translation-block p', card);
@@ -255,6 +535,7 @@ const processCopy = [
 function runProcessing(demo = true) {
   state.demo = demo;
   if (demo) state.currentPaperId = "attention";
+  const analysisPromise = !demo && state.file ? analyzeUploadedPdf(state.file).catch((error) => { console.error(error); return null; }) : Promise.resolve(null);
   showView("processing");
   let step = 0;
   let progress = 7;
@@ -269,24 +550,34 @@ function runProcessing(demo = true) {
     if (progress >= 100) {
       clearInterval(timer);
       bar.style.width = "100%";
-      setTimeout(() => {
+      setTimeout(async () => {
+        const analyzed = await analysisPromise;
         $("#demoBanner").hidden = !demo;
         $("#readerPage").hidden = false;
         $("#libraryPage").hidden = true;
         $("#originalPdfFrame").hidden = true;
+        $("#pdfCanvasView").hidden = true;
         $("#samplePdf").hidden = false;
         $("#sourceFileName").textContent = "attention-is-all-you-need.pdf";
+        if (demo) restoreSampleStream();
         if (!demo && state.file) {
           const title = state.file.name.replace(/\.pdf$/i, "");
           $("#headerPaperTitle").textContent = title;
           $(".reader-title h1").textContent = title;
-          $(".original-title").textContent = "업로드 파일 · 분석 연동 준비됨";
+          $(".original-title").textContent = analyzed ? "업로드 PDF · 문단 분석 완료" : "업로드 PDF · 원문 보기";
           $("#sourceFileName").textContent = state.file.name;
-          $("#originalPdfFrame").src = state.pdfUrl;
-          $("#originalPdfFrame").hidden = false;
-          $("#samplePdf").hidden = true;
+          if (analyzed) {
+            renderAnalyzedParagraphs(analyzed);
+            $("#pdfCanvasView").hidden = false;
+            $("#samplePdf").hidden = true;
+            await renderPdfPage(1);
+          } else {
+            $("#originalPdfFrame").src = state.pdfUrl;
+            $("#originalPdfFrame").hidden = false;
+            $("#samplePdf").hidden = true;
+          }
           $("#demoBanner").hidden = false;
-          $("#demoBanner").innerHTML = '<span>PREVIEW</span> 업로드한 원문 PDF를 왼쪽에 표시했습니다. 모델 API를 연결하면 오른쪽이 실제 문단 인식·번역 결과로 채워집니다.';
+          $("#demoBanner").innerHTML = analyzed ? `<span>PARAGRAPH MODE</span> PDF에서 ${analyzed.length}개 문단을 인식했습니다. 문단을 누르면 왼쪽 원문 위치가 표시됩니다.` : '<span>PDF VIEW</span> 텍스트를 추출할 수 없는 PDF입니다. 스캔 문서는 OCR 연동이 필요합니다.';
         }
         if (!demo && state.file) upsertUploadedPaper();
         restoreHighlights(state.currentPaperId);
@@ -318,6 +609,8 @@ function resetApp() {
   state.file = null;
   state.demo = true;
   state.pdfUrl = null;
+  state.pdfDocument = null;
+  state.analyzedParagraphs = [];
   $("#fileInput").value = "";
   $("#dropzone").hidden = false;
   $("#fileReady").hidden = true;
@@ -364,21 +657,37 @@ $$('[data-trending-source]').forEach((button) => button.addEventListener("click"
 $("#trendingQuery").addEventListener("keydown", (event) => { if (event.key === "Enter") collectTrendingPapers(); });
 $("#homeRecentPapers").addEventListener("click", (event) => { const button = event.target.closest("[data-home-paper]"); if (button) openStoredPaper(button.dataset.homePaper); });
 
-$$('.segment-card').forEach((card) => card.addEventListener("click", () => {
-  $$('.segment-card').forEach((item) => item.classList.toggle("active", item === card));
-  $(".page-control span").textContent = `${card.dataset.page} / 12`;
-}));
-
-$$('.segment-card footer button').forEach((button) => button.addEventListener("click", async (event) => {
-  event.stopPropagation();
-  const text = $('.translated-text', button.closest('.segment-card')).textContent;
-  if (button.textContent === "복사") {
-    await navigator.clipboard?.writeText(text);
-    showToast("번역 문단을 복사했어요.");
-  } else {
-    showToast("문단 편집 기능은 모델 연동 버전에서 제공됩니다.");
+$("#translationTab").addEventListener("click", async (event) => {
+  const translateButton = event.target.closest("[data-translate-index]");
+  if (translateButton) { event.stopPropagation(); await translateParagraphAt(Number(translateButton.dataset.translateIndex)); return; }
+  const knowledgeButton = event.target.closest(".knowledge-toggle");
+  if (knowledgeButton) {
+    event.stopPropagation();
+    const panel = $(".knowledge-panel", knowledgeButton.closest(".segment-card"));
+    panel.hidden = !panel.hidden;
+    knowledgeButton.textContent = panel.hidden ? "기초 용어" : "용어 닫기";
+    return;
   }
-}));
+  const footerButton = event.target.closest(".segment-card footer button");
+  if (footerButton) {
+    event.stopPropagation();
+    if (footerButton.classList.contains("copy-translation") || footerButton.textContent === "복사") {
+      const text = $(".translated-text", footerButton.closest(".segment-card"))?.textContent || "";
+      await navigator.clipboard?.writeText(text);
+      showToast("번역 문단을 복사했어요.");
+    } else showToast("문단 편집은 다음 업데이트에서 제공됩니다.");
+    return;
+  }
+  const card = event.target.closest(".segment-card");
+  if (!card) return;
+  $$('.segment-card').forEach((item) => item.classList.toggle("active", item === card));
+  const index = Number(card.dataset.paragraphIndex);
+  if (Number.isInteger(index) && state.analyzedParagraphs[index]) await highlightPdfParagraph(state.analyzedParagraphs[index]);
+  else $("#pdfPageIndicator").textContent = `${card.dataset.page} / 12`;
+});
+
+$("#prevPdfPage").addEventListener("click", () => renderPdfPage(state.currentPdfPage - 1));
+$("#nextPdfPage").addEventListener("click", () => renderPdfPage(state.currentPdfPage + 1));
 
 $("#collapseOriginals").addEventListener("click", (event) => {
   const collapsed = $("#translationTab").classList.toggle("originals-collapsed");
@@ -520,11 +829,23 @@ function upsertUploadedPaper() {
   const descriptor = uploadedPaperDescriptor(state.file);
   const existing = state.library.papers.find((paper) => paper.title.toLowerCase() === descriptor.title.toLowerCase());
   if (!existing) return saveUploadedPaperDraft(state.file);
-  Object.assign(existing, descriptor, { status: "complete", progress: 100, updatedAt: new Date().toISOString() });
+  const translatedCount = state.analyzedParagraphs.filter((paragraph) => paragraph.translation).length;
+  const progress = state.analyzedParagraphs.length ? Math.round(translatedCount / state.analyzedParagraphs.length * 100) : 0;
+  Object.assign(existing, descriptor, { status: progress === 100 ? "complete" : "reading", progress, updatedAt: new Date().toISOString() });
   state.currentPaperId = existing.id;
   saveLibrary();
   showToast("Analysis saved to Library.");
   return existing.id;
+}
+
+function updateTranslationProgress() {
+  const paper = state.library.papers.find((item) => item.id === state.currentPaperId);
+  if (!paper || !state.analyzedParagraphs.length) return;
+  paper.progress = Math.round(state.analyzedParagraphs.filter((paragraph) => paragraph.translation).length / state.analyzedParagraphs.length * 100);
+  paper.status = paper.progress === 100 ? "complete" : "reading";
+  paper.updatedAt = new Date().toISOString();
+  saveLibrary();
+  renderLibrary();
 }
 
 function paperRelations(papers = state.library.papers) {
@@ -616,20 +937,28 @@ async function openStoredPaper(id) {
     if (storedFile) {
       if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
       state.pdfUrl = URL.createObjectURL(storedFile);
-      $("#originalPdfFrame").src = state.pdfUrl;
-      $("#originalPdfFrame").hidden = false;
+      const savedAnalysis = loadAnalyses()[id] || [];
+      await loadPdfDocument(storedFile);
+      $("#originalPdfFrame").hidden = true;
+      $("#pdfCanvasView").hidden = false;
       $("#samplePdf").hidden = true;
       $("#sourceFileName").textContent = storedFile.name || `${paper.title}.pdf`;
-      $("#demoBanner").innerHTML = '<span>LIBRARY</span> 이 브라우저에 자동 저장된 원문 PDF와 분석 기록을 열었습니다.';
+      if (savedAnalysis.length) renderAnalyzedParagraphs(savedAnalysis);
+      else restoreSampleStream();
+      await renderPdfPage(1);
+      $("#demoBanner").innerHTML = savedAnalysis.length ? `<span>LIBRARY</span> 저장된 원문과 ${savedAnalysis.length}개 문단 번역을 열었습니다.` : '<span>LIBRARY</span> 원문 PDF를 열었습니다. Read에서 다시 분석하면 문단 번역이 생성됩니다.';
     } else {
       $("#originalPdfFrame").hidden = true;
+      $("#pdfCanvasView").hidden = true;
       $("#samplePdf").hidden = false;
+      restoreSampleStream();
       $("#sourceFileName").textContent = `${paper.title}.pdf`;
       $("#demoBanner").innerHTML = '<span>LIBRARY</span> 저장된 분석 기록입니다. 이 샘플의 원문 PDF는 브라우저에 보관되어 있지 않습니다.';
     }
   } catch (error) {
     console.error(error);
     $("#originalPdfFrame").hidden = true;
+    $("#pdfCanvasView").hidden = true;
     $("#samplePdf").hidden = false;
   }
   restoreHighlights(id);
@@ -757,6 +1086,7 @@ $("#downloadButton").addEventListener("click", async () => {
 state.library = loadLibrary();
 state.highlights = loadHighlights();
 restoreHighlights(state.currentPaperId);
+enhanceSampleKnowledge();
 renderLibrary();
 renderHomeRecent();
 restoreTrendingControls();
