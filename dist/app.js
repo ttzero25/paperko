@@ -6,6 +6,11 @@ const HIGHLIGHT_KEY = "paperko.highlights.v1";
 const FILE_DB_NAME = "paperko-files";
 const FILE_STORE_NAME = "pdfs";
 const TRENDING_KEY = "paperko.trending.v1";
+const RESEARCH_SOURCES = {
+  arxiv: { id: "S4306400194", label: "arXiv" },
+  emnlp: { id: "S4363608991", label: "EMNLP" },
+  aaai: { id: "S4210191458", label: "AAAI" },
+};
 const state = {
   file: null,
   demo: true,
@@ -15,6 +20,7 @@ const state = {
   paperFilter: "all",
   selectedGraphId: null,
   currentPaperId: "attention",
+  trendingSource: "all",
   highlights: {},
 };
 const baseSegmentHtml = $$('.segment-card').map((card) => ({
@@ -350,6 +356,12 @@ $("#homeReadButton").addEventListener("click", resetApp);
 $("#homeLibraryButton").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
 $("#homeAllPapers").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
 $("#collectTrending").addEventListener("click", collectTrendingPapers);
+$$('[data-trending-source]').forEach((button) => button.addEventListener("click", () => {
+  state.trendingSource = button.dataset.trendingSource;
+  $$('[data-trending-source]').forEach((item) => item.classList.toggle("active", item === button));
+  collectTrendingPapers();
+}));
+$("#trendingQuery").addEventListener("keydown", (event) => { if (event.key === "Enter") collectTrendingPapers(); });
 $("#homeRecentPapers").addEventListener("click", (event) => { const button = event.target.closest("[data-home-paper]"); if (button) openStoredPaper(button.dataset.homePaper); });
 
 $$('.segment-card').forEach((card) => card.addEventListener("click", () => {
@@ -392,48 +404,79 @@ function renderHomeRecent() {
 }
 
 function savedTrendingPapers() {
-  try { return JSON.parse(localStorage.getItem(TRENDING_KEY)) || []; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRENDING_KEY));
+    return Array.isArray(saved) ? saved : saved?.papers || [];
+  }
   catch (error) { console.warn("Trending papers could not be read", error); return []; }
+}
+
+function restoreTrendingControls() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRENDING_KEY));
+    if (!saved || Array.isArray(saved)) return;
+    if (saved.source === "all" || RESEARCH_SOURCES[saved.source]) state.trendingSource = saved.source;
+    $("#trendingQuery").value = saved.query || "";
+    $$('[data-trending-source]').forEach((button) => button.classList.toggle("active", button.dataset.trendingSource === state.trendingSource));
+  } catch (error) {
+    console.warn("Trending search controls could not be restored", error);
+  }
 }
 
 function renderTrending(papers = savedTrendingPapers()) {
   const container = $("#trendingPapers");
   if (!container) return;
-  container.innerHTML = papers.length ? papers.slice(0, 4).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.year} · 인용 ${paper.citations.toLocaleString()}</span></a>`).join("") : '<div class="home-empty">Collect를 눌러 최근 1년간 주목받은 논문을 수집하세요.</div>';
+  container.innerHTML = papers.length ? papers.slice(0, 5).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><span class="trend-source">${escapeHtml(paper.source || "Research")}</span><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.date || paper.year} · 인용 ${Number(paper.citations || 0).toLocaleString()}</span></a>`).join("") : '<div class="home-empty">키워드와 출처를 선택해 최신 논문을 검색하세요.</div>';
 }
 
 async function collectTrendingPapers() {
   const button = $("#collectTrending");
   const caption = $("#radarCaption");
+  const query = $("#trendingQuery").value.trim();
+  const selectedSources = state.trendingSource === "all" ? Object.entries(RESEARCH_SOURCES) : [[state.trendingSource, RESEARCH_SOURCES[state.trendingSource]]];
   button.classList.add("collecting");
-  button.textContent = "Collecting…";
-  caption.textContent = "OpenAlex 연구 데이터에서 최근 논문을 확인하고 있습니다.";
+  button.textContent = "Searching…";
+  caption.textContent = `${selectedSources.map(([, source]) => source.label).join(" · ")}에서 논문을 찾고 있습니다.`;
   const today = new Date();
   const from = new Date(today);
-  from.setFullYear(from.getFullYear() - 1);
+  from.setMonth(from.getMonth() - 24);
   const date = (value) => value.toISOString().slice(0, 10);
-  const endpoint = `https://api.openalex.org/works?filter=from_publication_date:${date(from)},to_publication_date:${date(today)},type:article,is_retracted:false&sort=cited_by_count:desc&per-page=8&select=id,display_name,publication_year,authorships,primary_location,cited_by_count`;
+  const sourceIds = selectedSources.map(([, source]) => source.id).join("|");
+  const parameters = new URLSearchParams({
+    filter: `locations.source.id:${sourceIds},from_publication_date:${date(from)},to_publication_date:${date(today)},is_retracted:false`,
+    sort: "cited_by_count:desc",
+    "per-page": "25",
+    select: "id,display_name,publication_date,publication_year,authorships,primary_location,best_oa_location,cited_by_count,locations",
+  });
+  if (query) parameters.set("search", query);
+  const endpoint = `https://api.openalex.org/works?${parameters}`;
   try {
     const response = await fetch(endpoint);
     if (!response.ok) throw new Error(`OpenAlex ${response.status}`);
     const payload = await response.json();
-    const papers = payload.results.map((work) => ({
-      title: work.display_name || "Untitled research",
-      authors: (work.authorships || []).slice(0, 2).map((item) => item.author?.display_name).filter(Boolean).join(", ") || "Unknown authors",
-      year: work.publication_year || today.getFullYear(),
-      citations: Number(work.cited_by_count || 0),
-      url: work.primary_location?.landing_page_url || work.id,
-    }));
-    localStorage.setItem(TRENDING_KEY, JSON.stringify(papers));
+    const papers = payload.results.map((work) => {
+      const matchedLocation = (work.locations || []).find((location) => selectedSources.some(([, source]) => location.source?.id?.endsWith(source.id)));
+      const sourceEntry = selectedSources.find(([, source]) => matchedLocation?.source?.id?.endsWith(source.id));
+      return {
+        title: work.display_name || "Untitled research",
+        authors: (work.authorships || []).slice(0, 2).map((item) => item.author?.display_name).filter(Boolean).join(", ") || "Unknown authors",
+        year: work.publication_year || today.getFullYear(),
+        date: work.publication_date || String(work.publication_year || today.getFullYear()),
+        citations: Number(work.cited_by_count || 0),
+        source: sourceEntry?.[1].label || matchedLocation?.source?.display_name || "Research",
+        url: matchedLocation?.landing_page_url || work.best_oa_location?.landing_page_url || work.primary_location?.landing_page_url || work.id,
+      };
+    });
+    localStorage.setItem(TRENDING_KEY, JSON.stringify({ papers, query, source: state.trendingSource, updatedAt: new Date().toISOString() }));
     renderTrending(papers);
-    caption.textContent = `최근 1년 기준 · ${new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })} 수집`;
+    caption.textContent = papers.length ? `${query ? `“${query}” · ` : ""}최근 24개월 · ${papers.length}편 검색` : "선택한 조건에 맞는 논문이 없습니다.";
   } catch (error) {
     console.error(error);
     caption.textContent = "수집에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.";
     showToast("최근 논문을 불러오지 못했어요.");
   } finally {
     button.classList.remove("collecting");
-    button.textContent = "Collect";
+    button.textContent = "Search";
   }
 }
 
@@ -716,6 +759,7 @@ state.highlights = loadHighlights();
 restoreHighlights(state.currentPaperId);
 renderLibrary();
 renderHomeRecent();
+restoreTrendingControls();
 renderTrending();
 if (["#reader", "#library", "#map"].includes(location.hash)) {
   const initialWorkspace = location.hash.slice(1);
