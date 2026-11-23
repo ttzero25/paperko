@@ -19,6 +19,7 @@ const state = {
   pdfUrl: null,
   library: null,
   activeFolder: "all",
+  readFolder: "all",
   paperFilter: "all",
   selectedGraphId: null,
   currentPaperId: "attention",
@@ -619,6 +620,7 @@ function resetApp() {
   $(".reader-title h1").textContent = "어텐션만으로 충분하다";
   $(".original-title").textContent = "Attention Is All You Need";
   history.replaceState(null, "", `${location.pathname}${location.search}`);
+  renderReadLibrary();
   showView("upload");
 }
 
@@ -646,8 +648,8 @@ $("#topButton").addEventListener("click", () => window.scrollTo({ top: 0, behavi
 $("#helpButton").addEventListener("click", () => showToast("PDF를 업로드하거나 샘플 논문으로 전체 흐름을 체험해 보세요."));
 $(".brand").addEventListener("click", (event) => { event.preventDefault(); history.replaceState(null, "", `${location.pathname}${location.search}`); showView("home"); renderHomeRecent(); });
 $("#homeReadButton").addEventListener("click", resetApp);
-$("#homeLibraryButton").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
-$("#homeAllPapers").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
+$("#homeLibraryButton").addEventListener("click", resetApp);
+$("#homeAllPapers").addEventListener("click", resetApp);
 $("#collectTrending").addEventListener("click", collectTrendingPapers);
 $$('[data-trending-source]').forEach((button) => button.addEventListener("click", () => {
   state.trendingSource = button.dataset.trendingSource;
@@ -861,6 +863,16 @@ function folderCount(folder) {
   return folder === "all" ? state.library.papers.length : state.library.papers.filter((paper) => paper.folder === folder).length;
 }
 
+function renderReadLibrary() {
+  if (!state.library || !$("#readLibraryPapers")) return;
+  const folders = ["all", ...state.library.folders];
+  const papers = [...state.library.papers]
+    .filter((paper) => state.readFolder === "all" || paper.folder === state.readFolder)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  $("#readLibraryFolders").innerHTML = folders.map((folder) => `<button class="${state.readFolder === folder ? "active" : ""}" data-read-folder="${escapeHtml(folder)}">${escapeHtml(folder === "all" ? "전체" : folder)} <b>${folderCount(folder)}</b></button>`).join("");
+  $("#readLibraryPapers").innerHTML = papers.length ? papers.slice(0, 8).map((paper) => `<button class="read-paper-card" data-read-paper="${paper.id}"><span class="read-paper-type">PDF</span><span class="read-paper-copy"><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.folder)} · ${relativeTime(paper.updatedAt)}</small></span><span class="read-paper-progress"><i><b style="width:${paper.progress}%"></b></i><small>${paper.progress}%</small></span></button>`).join("") : '<div class="read-library-empty">이 폴더에는 아직 논문이 없습니다.</div>';
+}
+
 function renderLibrary() {
   const papers = [...state.library.papers].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   const filtered = papers.filter((paper) => (state.activeFolder === "all" || paper.folder === state.activeFolder) && (state.paperFilter === "all" || paper.status === state.paperFilter));
@@ -881,6 +893,7 @@ function renderLibrary() {
   $(".sidebar-progress div span").textContent = "논문 분석 완료";
   const percent = papers.length ? Math.round(papers.filter((paper) => paper.status === "complete").length / papers.length * 100) : 0;
   $(".complete-bar i").style.width = `${percent}%`;
+  renderReadLibrary();
 }
 
 function graphColor(paper) {
@@ -978,7 +991,7 @@ function showWorkspace(name) {
   if (name === "library") renderLibrary();
   if (name === "map") requestAnimationFrame(renderGraph);
   history.replaceState(null, "", `#${name}`);
-  $$('[data-main-nav]').forEach((button) => button.classList.toggle("active", button.dataset.mainNav === (name === "reader" ? "read" : name)));
+  $$('[data-main-nav]').forEach((button) => button.classList.toggle("active", button.dataset.mainNav === (["reader", "library"].includes(name) ? "read" : name)));
   window.scrollTo(0, 0);
 }
 
@@ -992,13 +1005,16 @@ function addLocalFolder() {
   showToast(`‘${name}’ 폴더를 만들었어요.`);
 }
 
-$("#libraryButton").addEventListener("click", () => showWorkspace("library"));
+$("#libraryButton").addEventListener("click", resetApp);
 $("#mapButton").addEventListener("click", () => showWorkspace("map"));
 $("#openLibrarySidebar").addEventListener("click", () => showWorkspace("library"));
-$("#closeLibrary").addEventListener("click", () => showWorkspace("reader"));
+$("#closeLibrary").addEventListener("click", resetApp);
 $("#closeMap").addEventListener("click", () => showWorkspace("reader"));
 $("#openLibraryFromMap").addEventListener("click", () => showWorkspace("library"));
 $("#openMapFromLibrary").addEventListener("click", () => showWorkspace("map"));
+$("#readManageLibrary").addEventListener("click", () => { showView("result"); showWorkspace("library"); });
+$("#readLibraryFolders").addEventListener("click", (event) => { const button = event.target.closest("[data-read-folder]"); if (!button) return; state.readFolder = button.dataset.readFolder; renderReadLibrary(); });
+$("#readLibraryPapers").addEventListener("click", (event) => { const button = event.target.closest("[data-read-paper]"); if (button) openStoredPaper(button.dataset.readPaper); });
 $$('[data-main-nav]').forEach((button) => button.addEventListener("click", () => {
   const target = button.dataset.mainNav;
   if (target === "home") { history.replaceState(null, "", `${location.pathname}${location.search}`); showView("home"); renderHomeRecent(); return; }
