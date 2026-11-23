@@ -270,7 +270,7 @@ function upsertUploadedPaper() {
   if (!state.library.folders.includes(folder)) state.library.folders.push(folder);
   state.currentPaperId = paper.id;
   saveLibrary();
-  showToast("분석한 논문을 내 논문함에 저장했어요.");
+  showToast("Saved to My Library.");
 }
 
 function paperRelations(papers = state.library.papers) {
@@ -367,7 +367,7 @@ function showWorkspace(name) {
   $("#libraryPage").hidden = name !== "library";
   $("#knowledgePage").hidden = name !== "map";
   $("#downloadButton").hidden = name !== "reader";
-  $("#headerPaperTitle").textContent = name === "library" ? "내 논문함" : name === "map" ? "논문 연결 지도" : $(".reader-title h1").textContent;
+  $("#headerPaperTitle").textContent = name === "library" ? "My Library" : name === "map" ? "Research Graph" : $(".reader-title h1").textContent;
   $$('.sidebar-switch button').forEach((button) => button.classList.toggle("active", button.dataset.side === name));
   $("#tocPanel").hidden = name !== "reader";
   if (name === "library") renderLibrary();

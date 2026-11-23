@@ -1,6 +1,6 @@
 /* Persistent library and research graph */
 .sidebar-switch{grid-template-columns:repeat(3,1fr)}
-.sidebar-switch button{padding:7px 3px;font-size:10px}
+.sidebar-switch button{padding:7px 3px;font-size:9px;white-space:nowrap}
 #libraryPanel{display:block!important}
 .paper-table-empty{padding:42px 20px;text-align:center;color:#8793a3;font-size:12px;border-top:1px solid #edf1f5}
 .paper-row.is-selected{background:#f3f8ff}.paper-row .row-actions{justify-self:end;color:#8b97a7;font-size:16px}
