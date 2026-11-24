@@ -9,7 +9,7 @@
 
 ## 주요 화면
 
-- `Home`: 서비스 소개, 최근 분석 논문, arXiv·EMNLP·AAAI 출처별 최신 논문 검색 및 수집
+- `Home`: 최근 분석 논문과 arXiv·NeurIPS·ICML·ICLR·AAAI 출처별 최신 AI 논문 검색
 - `Read`: PDF 업로드·분석·원문 읽기와 저장된 논문 Library를 한 화면에서 관리
 - PDF 업로드 및 분석 진행 상태
 - 원문 PDF와 문단별 원문/번역 동시 검토

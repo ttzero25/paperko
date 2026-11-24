@@ -5,12 +5,14 @@ const STORAGE_KEY = "paperko.library.v1";
 const HIGHLIGHT_KEY = "paperko.highlights.v1";
 const FILE_DB_NAME = "paperko-files";
 const FILE_STORE_NAME = "pdfs";
-const TRENDING_KEY = "paperko.trending.v1";
+const TRENDING_KEY = "paperko.trending.v2";
 const ANALYSIS_KEY = "paperko.analysis.v1";
 const TRANSLATION_CACHE_KEY = "paperko.translations.v1";
 const RESEARCH_SOURCES = {
   arxiv: { id: "S4306400194", label: "arXiv" },
-  emnlp: { id: "S4363608991", label: "EMNLP" },
+  neurips: { id: "S4363606243", label: "NeurIPS" },
+  icml: { id: "S4306419644", label: "ICML" },
+  iclr: { id: "S4306419637", label: "ICLR" },
   aaai: { id: "S4210191458", label: "AAAI" },
 };
 const state = {
@@ -722,6 +724,13 @@ function savedTrendingPapers() {
   catch (error) { console.warn("Trending papers could not be read", error); return []; }
 }
 
+function savedTrendingRecord() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRENDING_KEY));
+    return saved && !Array.isArray(saved) ? saved : null;
+  } catch { return null; }
+}
+
 function restoreTrendingControls() {
   try {
     const saved = JSON.parse(localStorage.getItem(TRENDING_KEY));
@@ -737,7 +746,36 @@ function restoreTrendingControls() {
 function renderTrending(papers = savedTrendingPapers()) {
   const container = $("#trendingPapers");
   if (!container) return;
-  container.innerHTML = papers.length ? papers.slice(0, 5).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><span class="trend-source">${escapeHtml(paper.source || "Research")}</span><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.date || paper.year} · 인용 ${Number(paper.citations || 0).toLocaleString()}</span></a>`).join("") : '<div class="home-empty">키워드와 출처를 선택해 최신 논문을 검색하세요.</div>';
+  container.innerHTML = papers.length ? papers.slice(0, 12).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><span class="trend-source">${escapeHtml(paper.source || "Research")}</span><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.date || paper.year} · 인용 ${Number(paper.citations || 0).toLocaleString()}</span></a>`).join("") : '<div class="home-empty">4대 AI 학회와 arXiv에서 최신 논문을 불러오고 있습니다.</div>';
+}
+
+async function fetchLatestFromSource(sourceKey, source, query, fromDate, todayDate) {
+  const filters = [`locations.source.id:${source.id}`, `from_publication_date:${fromDate}`, `to_publication_date:${todayDate}`, "is_retracted:false"];
+  if (sourceKey === "arxiv") filters.push("primary_topic.subfield.id:1702|1707");
+  const parameters = new URLSearchParams({
+    filter: filters.join(","),
+    sort: "publication_date:desc",
+    "per-page": "6",
+    select: "id,display_name,publication_date,publication_year,authorships,primary_location,best_oa_location,cited_by_count,locations,primary_topic",
+  });
+  if (query) parameters.set("search", query);
+  const response = await fetch(`https://api.openalex.org/works?${parameters}`);
+  if (!response.ok) throw new Error(`OpenAlex ${source.label} ${response.status}`);
+  const payload = await response.json();
+  return payload.results.map((work) => {
+    const matchedLocation = (work.locations || []).find((location) => location.source?.id?.endsWith(source.id));
+    return {
+      id: work.id,
+      title: work.display_name || "Untitled research",
+      authors: (work.authorships || []).slice(0, 2).map((item) => item.author?.display_name).filter(Boolean).join(", ") || "Unknown authors",
+      year: work.publication_year || new Date().getFullYear(),
+      date: work.publication_date || String(work.publication_year || new Date().getFullYear()),
+      citations: Number(work.cited_by_count || 0),
+      source: source.label,
+      topic: work.primary_topic?.display_name || "AI research",
+      url: matchedLocation?.landing_page_url || work.best_oa_location?.landing_page_url || work.primary_location?.landing_page_url || work.id,
+    };
+  });
 }
 
 async function collectTrendingPapers() {
@@ -746,48 +784,33 @@ async function collectTrendingPapers() {
   const query = $("#trendingQuery").value.trim();
   const selectedSources = state.trendingSource === "all" ? Object.entries(RESEARCH_SOURCES) : [[state.trendingSource, RESEARCH_SOURCES[state.trendingSource]]];
   button.classList.add("collecting");
-  button.textContent = "Searching…";
-  caption.textContent = `${selectedSources.map(([, source]) => source.label).join(" · ")}에서 논문을 찾고 있습니다.`;
+  button.textContent = "Loading…";
+  caption.textContent = `${selectedSources.map(([, source]) => source.label).join(" · ")}의 최신 발표를 확인하고 있습니다.`;
   const today = new Date();
   const from = new Date(today);
   from.setMonth(from.getMonth() - 24);
   const date = (value) => value.toISOString().slice(0, 10);
-  const sourceIds = selectedSources.map(([, source]) => source.id).join("|");
-  const parameters = new URLSearchParams({
-    filter: `locations.source.id:${sourceIds},from_publication_date:${date(from)},to_publication_date:${date(today)},is_retracted:false`,
-    sort: "cited_by_count:desc",
-    "per-page": "25",
-    select: "id,display_name,publication_date,publication_year,authorships,primary_location,best_oa_location,cited_by_count,locations",
-  });
-  if (query) parameters.set("search", query);
-  const endpoint = `https://api.openalex.org/works?${parameters}`;
   try {
-    const response = await fetch(endpoint);
-    if (!response.ok) throw new Error(`OpenAlex ${response.status}`);
-    const payload = await response.json();
-    const papers = payload.results.map((work) => {
-      const matchedLocation = (work.locations || []).find((location) => selectedSources.some(([, source]) => location.source?.id?.endsWith(source.id)));
-      const sourceEntry = selectedSources.find(([, source]) => matchedLocation?.source?.id?.endsWith(source.id));
-      return {
-        title: work.display_name || "Untitled research",
-        authors: (work.authorships || []).slice(0, 2).map((item) => item.author?.display_name).filter(Boolean).join(", ") || "Unknown authors",
-        year: work.publication_year || today.getFullYear(),
-        date: work.publication_date || String(work.publication_year || today.getFullYear()),
-        citations: Number(work.cited_by_count || 0),
-        source: sourceEntry?.[1].label || matchedLocation?.source?.display_name || "Research",
-        url: matchedLocation?.landing_page_url || work.best_oa_location?.landing_page_url || work.primary_location?.landing_page_url || work.id,
-      };
+    const settled = await Promise.allSettled(selectedSources.map(([key, source]) => fetchLatestFromSource(key, source, query, date(from), date(today))));
+    const buckets = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    if (!buckets.length) throw new Error("Every research source failed");
+    const papers = [];
+    const seen = new Set();
+    for (let row = 0; row < 6; row += 1) buckets.forEach((bucket) => {
+      const paper = bucket[row];
+      if (paper && !seen.has(paper.id)) { seen.add(paper.id); papers.push(paper); }
     });
     localStorage.setItem(TRENDING_KEY, JSON.stringify({ papers, query, source: state.trendingSource, updatedAt: new Date().toISOString() }));
     renderTrending(papers);
-    caption.textContent = papers.length ? `${query ? `“${query}” · ` : ""}최근 24개월 · ${papers.length}편 검색` : "선택한 조건에 맞는 논문이 없습니다.";
+    const failedCount = settled.length - buckets.length;
+    caption.textContent = papers.length ? `${query ? `“${query}” · ` : ""}출처별 최신 발표순 · ${papers.length}편${failedCount ? ` · ${failedCount}개 출처 재시도 필요` : ""}` : "선택한 조건에 맞는 최신 논문이 없습니다.";
   } catch (error) {
     console.error(error);
     caption.textContent = "수집에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.";
     showToast("최근 논문을 불러오지 못했어요.");
   } finally {
     button.classList.remove("collecting");
-    button.textContent = "Search";
+    button.textContent = "Refresh";
   }
 }
 
@@ -1107,6 +1130,10 @@ renderLibrary();
 renderHomeRecent();
 restoreTrendingControls();
 renderTrending();
+const latestPaperRecord = savedTrendingRecord();
+if (!latestPaperRecord?.papers?.length || Date.now() - new Date(latestPaperRecord.updatedAt || 0).getTime() > 6 * 60 * 60 * 1000) {
+  setTimeout(collectTrendingPapers, 0);
+}
 if (["#reader", "#library", "#map"].includes(location.hash)) {
   const initialWorkspace = location.hash.slice(1);
   showView("result");
