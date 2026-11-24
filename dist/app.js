@@ -44,12 +44,14 @@ const state = {
   currentPdfPage: 1,
   analyzedParagraphs: [],
   highlights: {},
+  selectedParagraphIndex: null,
 };
 const baseSegmentHtml = $$('.segment-card').map((card) => ({
   source: $('.source-block p', card)?.innerHTML || "",
   translation: $('.translation-block p', card)?.innerHTML || "",
 }));
 const baseStreamSectionsHtml = $$('.translation-stream .stream-section').map((section) => section.outerHTML).join("");
+const baseVisualHtml = $("#visualTab")?.innerHTML || "";
 
 function seedLibrary() {
   const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -329,6 +331,21 @@ function paragraphCard(paragraph, index) {
   return `<article class="segment-card analyzed-segment ${index === 0 ? "active" : ""}" data-page="${paragraph.page}" data-paragraph-index="${index}"><header><span class="segment-no">문단 ${String(index + 1).padStart(2, "0")}</span><span class="page-chip">p.${paragraph.page}</span><span class="mapping-ready">원문 위치 연결됨</span></header><div class="source-block"><span>원문</span><p>${escapeHtml(paragraph.source)}</p></div><div class="translation-block ${paragraph.translation ? "" : "is-pending"}"><span>한국어 번역</span><p class="translated-text">${translation}</p>${paragraph.translationStatus === "pending" || paragraph.translationStatus === "error" ? `<button class="translate-paragraph" data-translate-index="${index}">${paragraph.translationStatus === "error" ? "다시 번역" : "이 문단 번역"}</button>` : ""}</div><div class="knowledge-panel" hidden>${knowledge}</div><footer><span>문단 단위 · 원문 p.${paragraph.page}</span><button class="knowledge-toggle" type="button">기초 용어</button><button class="copy-translation" type="button">복사</button></footer></article>`;
 }
 
+function syncTranslationPage(pageNumber) {
+  const page = Number(pageNumber) || 1;
+  const cards = $$(".translation-stream .segment-card");
+  const sections = $$(".translation-stream .stream-section");
+  let visibleCount = 0;
+  cards.forEach((card) => {
+    const visible = Number(card.dataset.page) === page;
+    card.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+  sections.forEach((section) => { section.hidden = !$$('.segment-card:not([hidden])', section).length; });
+  $("#translationPageIndicator").textContent = `p.${page}`;
+  $("#translationPageEmpty").hidden = visibleCount > 0;
+}
+
 function renderAnalyzedParagraphs(paragraphs) {
   state.analyzedParagraphs = paragraphs;
   const stream = $(".translation-stream");
@@ -337,6 +354,7 @@ function renderAnalyzedParagraphs(paragraphs) {
   $('.reader-tabs button[data-tab="translation"] b').textContent = paragraphs.length;
   $(".sidebar-progress strong").textContent = `${paragraphs.filter((item) => item.translation).length} / ${paragraphs.length}`;
   $(".sidebar-progress div span").textContent = "문단 번역 완료";
+  syncTranslationPage(state.currentPdfPage || 1);
 }
 
 function restoreSampleStream() {
@@ -345,6 +363,13 @@ function restoreSampleStream() {
   stream.insertAdjacentHTML("beforeend", baseStreamSectionsHtml);
   state.analyzedParagraphs = [];
   enhanceSampleKnowledge();
+  syncTranslationPage(state.currentPdfPage || 1);
+}
+
+function renderVisualAnalysis(sample = false) {
+  const visualTab = $("#visualTab");
+  if (!visualTab) return;
+  visualTab.innerHTML = sample ? baseVisualHtml : '<section class="visual-section" id="visuals"><div class="section-heading"><div><span>VISUAL EVIDENCE</span><h2>Figure · Table 해석</h2></div><span class="analysis-count">원문 분석 대기</span></div><div class="visual-empty"><strong>이 논문의 Figure와 Table을 분석하는 중입니다.</strong><p>문단 번역과 원문 페이지 연결을 먼저 완료한 뒤, 실제 PDF의 Figure·Table 캡션과 본문 근거를 기준으로 해석을 표시합니다.</p></div></section>';
 }
 
 async function translateParagraphAt(index) {
@@ -397,6 +422,63 @@ async function renderPdfPage(pageNumber) {
   $("#prevPdfPage").disabled = state.currentPdfPage <= 1;
   $("#nextPdfPage").disabled = state.currentPdfPage >= state.pdfDocument.numPages;
   $("#pdfTextHighlight").innerHTML = "";
+  renderPdfHoverTargets();
+  syncTranslationPage(state.currentPdfPage);
+}
+
+function renderPdfHoverTargets() {
+  const layer = $("#pdfHoverLayer");
+  if (!layer || !state.pdfViewport) return;
+  const paragraphs = state.analyzedParagraphs.filter((paragraph) => paragraph.page === state.currentPdfPage);
+  layer.innerHTML = paragraphs.map((paragraph) => {
+    const index = state.analyzedParagraphs.indexOf(paragraph);
+    const rectangles = paragraph.boxes.map((box) => state.pdfViewport.convertToViewportRectangle([box.x, box.y, box.x + box.width, box.y + box.height]));
+    const left = Math.min(...rectangles.map(([x1]) => x1));
+    const top = Math.min(...rectangles.flatMap(([, y1, , y2]) => [y1, y2]));
+    const right = Math.max(...rectangles.map(([, , x2]) => x2));
+    const bottom = Math.max(...rectangles.flatMap(([, y1, , y2]) => [y1, y2]));
+    const selected = state.selectedParagraphIndex === index ? " selected" : "";
+    return `<button class="pdf-paragraph-target${selected}" type="button" data-hover-paragraph="${index}" style="left:${left}px;top:${top}px;width:${Math.max(8, right - left)}px;height:${Math.max(8, bottom - top)}px" aria-label="문단 ${index + 1} 번역 보기"></button>`;
+  }).join("");
+}
+
+function hideTranslationHover() {
+  $("#translationHoverCard").hidden = true;
+}
+
+function showTranslationHover(index, target) {
+  const paragraph = state.analyzedParagraphs[index];
+  if (!paragraph) return;
+  showHoverText(paragraph.translation || "이 문단은 아직 번역되지 않았습니다.", target);
+}
+
+async function selectPdfParagraph(index) {
+  const paragraph = state.analyzedParagraphs[index];
+  if (!paragraph) return;
+  state.selectedParagraphIndex = index;
+  renderPdfHoverTargets();
+  const cards = $$(".translation-stream .segment-card");
+  const card = cards.find((item) => Number(item.dataset.paragraphIndex) === index);
+  if (card) {
+    syncTranslationPage(paragraph.page);
+    cards.forEach((item) => item.classList.toggle("active", item === card));
+    card.hidden = false;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  await highlightPdfParagraph(paragraph);
+  if (!paragraph.translation && paragraph.translationStatus !== "loading") await translateParagraphAt(index);
+}
+
+function showHoverText(text, target) {
+  const card = $("#translationHoverCard");
+  $("#translationHoverText").textContent = text;
+  card.hidden = false;
+  const rect = target.getBoundingClientRect();
+  const width = Math.min(360, window.innerWidth - 28);
+  const left = Math.min(Math.max(14, rect.right + 12), window.innerWidth - width - 14);
+  const top = Math.min(Math.max(14, rect.top), window.innerHeight - card.offsetHeight - 14);
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
 }
 
 function drawPdfHighlight(paragraph) {
@@ -589,6 +671,7 @@ function runProcessing(demo = true) {
         $("#samplePdf").hidden = false;
         $("#sourceFileName").textContent = "attention-is-all-you-need.pdf";
         if (demo) restoreSampleStream();
+        renderVisualAnalysis(demo);
         if (!demo && state.file) {
           const title = state.file.name.replace(/\.pdf$/i, "");
           $("#headerPaperTitle").textContent = title;
@@ -713,11 +796,50 @@ $("#translationTab").addEventListener("click", async (event) => {
   $$('.segment-card').forEach((item) => item.classList.toggle("active", item === card));
   const index = Number(card.dataset.paragraphIndex);
   if (Number.isInteger(index) && state.analyzedParagraphs[index]) await highlightPdfParagraph(state.analyzedParagraphs[index]);
-  else $("#pdfPageIndicator").textContent = `${card.dataset.page} / 12`;
+  else {
+    const page = Number(card.dataset.page) || 1;
+    $("#pdfPageIndicator").textContent = `${page} / 12`;
+    syncTranslationPage(page);
+  }
 });
 
 $("#prevPdfPage").addEventListener("click", () => renderPdfPage(state.currentPdfPage - 1));
 $("#nextPdfPage").addEventListener("click", () => renderPdfPage(state.currentPdfPage + 1));
+$("#pdfHoverLayer").addEventListener("pointerover", (event) => {
+  const target = event.target.closest("[data-hover-paragraph]");
+  if (target) showTranslationHover(Number(target.dataset.hoverParagraph), target);
+});
+$("#pdfHoverLayer").addEventListener("click", async (event) => {
+  const target = event.target.closest("[data-hover-paragraph]");
+  if (!target) return;
+  event.preventDefault();
+  await selectPdfParagraph(Number(target.dataset.hoverParagraph));
+});
+$("#pdfHoverLayer").addEventListener("pointerout", (event) => {
+  if (!event.relatedTarget || !event.relatedTarget.closest?.("[data-hover-paragraph]")) hideTranslationHover();
+});
+$("#samplePdf").addEventListener("pointerover", (event) => {
+  const paragraph = event.target.closest("p");
+  if (!paragraph) return;
+  const sampleParagraphs = $$("#samplePdf p");
+  const index = sampleParagraphs.indexOf(paragraph);
+  const translation = $$(".translation-stream .translated-text")[index]?.textContent;
+  if (translation) showHoverText(translation, paragraph);
+});
+$("#samplePdf").addEventListener("click", (event) => {
+  const paragraph = event.target.closest("p");
+  if (!paragraph) return;
+  const index = $$("#samplePdf p").indexOf(paragraph);
+  const cards = $$(".translation-stream .segment-card");
+  const card = cards[index];
+  if (!card) return;
+  cards.forEach((item) => item.classList.toggle("active", item === card));
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  $$("#samplePdf p").forEach((item) => item.classList.toggle("sample-selected", item === paragraph));
+});
+$("#samplePdf").addEventListener("pointerout", (event) => {
+  if (!event.relatedTarget || !event.relatedTarget.closest?.("#samplePdf p")) hideTranslationHover();
+});
 
 $("#collapseOriginals").addEventListener("click", (event) => {
   const collapsed = $("#translationTab").classList.toggle("originals-collapsed");
@@ -1019,6 +1141,7 @@ async function openStoredPaper(id) {
   $("#demoBanner").hidden = false;
   try {
     const storedFile = await loadPdfFile(id);
+    renderVisualAnalysis(id === "attention" && !storedFile);
     if (storedFile) {
       if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
       state.pdfUrl = URL.createObjectURL(storedFile);
