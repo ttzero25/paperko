@@ -40,7 +40,7 @@
           </div>
           <aside class="home-dashboard">
             <section class="home-card recent-card"><header><div><span>YOUR LIBRARY</span><h2>최근 분석 논문</h2></div><button id="homeAllPapers">View all</button></header><div id="homeRecentPapers"></div></section>
-            <section class="home-card trending-card"><header><div><span>LATEST AI PAPERS</span><h2>최신 AI 논문</h2></div><button id="collectTrending">Refresh</button></header><div class="radar-search"><input id="trendingQuery" type="search" placeholder="agent, multimodal, RAG…" aria-label="논문 검색어" /><div class="radar-sources" aria-label="논문 출처"><button class="active" data-trending-source="all">All</button><button data-trending-source="arxiv">arXiv</button><button data-trending-source="neurips">NeurIPS</button><button data-trending-source="icml">ICML</button><button data-trending-source="iclr">ICLR</button><button data-trending-source="aaai">AAAI</button></div></div><p class="radar-caption" id="radarCaption">4대 AI 학회와 arXiv AI 분야의 최신 발표 논문을 가져옵니다.</p><div id="trendingPapers"></div></section>
+            <section class="home-card trending-card"><header><div><span>LATEST AI PAPERS</span><h2>최신 AI 논문</h2></div><button id="collectTrending">Refresh</button></header><div class="radar-search"><input id="trendingQuery" type="search" placeholder="agent, multimodal, RAG…" aria-label="논문 검색어" /><div class="radar-sources" aria-label="논문 출처"><button class="active" data-trending-source="all">All</button><button data-trending-source="arxiv">arXiv</button><button data-trending-source="neurips">NeurIPS</button><button data-trending-source="icml">ICML</button><button data-trending-source="iclr">ICLR</button><button data-trending-source="aaai">AAAI</button></div></div><p class="radar-caption" id="radarCaption">4대 AI 학회와 arXiv AI 분야의 최신 발표 논문을 가져옵니다.</p><div id="trendingPapers"></div><div class="featured-paper-groups"><section><div class="featured-heading"><span>AI MUST-READ</span><strong>꼭 읽어봐야 할 AI</strong></div><div id="mustReadPapers"></div></section><section><div class="featured-heading security"><span>AI SECURITY</span><strong>AI 보안 필독</strong></div><div id="securityPapers"></div></section></div></section>
           </aside>
         </section>
 
@@ -50,7 +50,6 @@
             <div class="read-library-filters" id="readLibraryFolders"></div>
             <div class="read-library-papers" id="readLibraryPapers"></div>
           </section>
-          </div>
 
           <div class="upload-panel">
             <div class="upload-panel-head">
@@ -131,7 +130,7 @@
           <div class="result-main">
             <header class="result-header">
               <div class="breadcrumb"><button id="backButton">내 논문</button><span>/</span><strong id="headerPaperTitle">Attention Is All You Need</strong></div>
-              <div class="result-actions"><button class="outline-button" id="libraryButton">Read</button><button class="outline-button" id="mapButton">Connect</button><span class="saved-state">✓ 이 브라우저에 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
+              <div class="result-actions"><button class="outline-button" id="libraryButton">Library</button><button class="outline-button" id="mapButton">Connect</button><span class="saved-state">✓ 이 브라우저에 저장됨</span><button class="download-button" id="downloadButton"><span>↓</span> ko.pdf 다운로드</button></div>
             </header>
 
             <div class="reader-page" id="readerPage">

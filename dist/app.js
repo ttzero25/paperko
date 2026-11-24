@@ -15,6 +15,20 @@ const RESEARCH_SOURCES = {
   iclr: { id: "S4306419637", label: "ICLR" },
   aaai: { id: "S4210191458", label: "AAAI" },
 };
+const FEATURED_PAPERS = {
+  mustRead: [
+    { title: "Attention Is All You Need", authors: "Vaswani et al. · 2017", url: "https://arxiv.org/abs/1706.03762", source: "Transformer" },
+    { title: "BERT: Pre-training of Deep Bidirectional Transformers", authors: "Devlin et al. · 2018", url: "https://arxiv.org/abs/1810.04805", source: "NLP" },
+    { title: "Learning Transferable Visual Models From Natural Language Supervision", authors: "Radford et al. · 2021", url: "https://arxiv.org/abs/2103.00020", source: "Multimodal" },
+    { title: "Denoising Diffusion Probabilistic Models", authors: "Ho et al. · 2020", url: "https://arxiv.org/abs/2006.11239", source: "Generative AI" },
+  ],
+  security: [
+    { title: "Explaining and Harnessing Adversarial Examples", authors: "Goodfellow et al. · 2014", url: "https://arxiv.org/abs/1412.6572", source: "Adversarial ML" },
+    { title: "SoK: Security and Privacy in Machine Learning", authors: "Biggio et al. · 2018", url: "https://arxiv.org/abs/1802.04989", source: "ML Security" },
+    { title: "BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain", authors: "Gu et al. · 2017", url: "https://arxiv.org/abs/1708.06733", source: "Backdoor" },
+    { title: "Membership Inference Attacks Against Machine Learning Models", authors: "Shokri et al. · 2017", url: "https://arxiv.org/abs/1610.05820", source: "Privacy" },
+  ],
+};
 const state = {
   file: null,
   demo: true,
@@ -98,6 +112,18 @@ async function loadPdfFile(paperId) {
   });
   database.close();
   return file;
+}
+
+async function deletePdfFile(paperId) {
+  const database = await openFileDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(FILE_STORE_NAME, "readwrite");
+    transaction.objectStore(FILE_STORE_NAME).delete(paperId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  database.close();
 }
 
 function groupLinesByIndent(lines, { indentThreshold = 12, gapThreshold = 8 } = {}) {
@@ -747,6 +773,9 @@ function renderTrending(papers = savedTrendingPapers()) {
   const container = $("#trendingPapers");
   if (!container) return;
   container.innerHTML = papers.length ? papers.slice(0, 12).map((paper) => `<a class="trend-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><span class="trend-source">${escapeHtml(paper.source || "Research")}</span><strong>${escapeHtml(paper.title)}</strong><span>${escapeHtml(paper.authors)} · ${paper.date || paper.year} · 인용 ${Number(paper.citations || 0).toLocaleString()}</span></a>`).join("") : '<div class="home-empty">4대 AI 학회와 arXiv에서 최신 논문을 불러오고 있습니다.</div>';
+  const renderFeatured = (items) => items.map((paper) => `<a class="featured-paper" href="${escapeHtml(paper.url)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(paper.source)}</span><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.authors)}</small></a>`).join("");
+  $("#mustReadPapers").innerHTML = renderFeatured(FEATURED_PAPERS.mustRead);
+  $("#securityPapers").innerHTML = renderFeatured(FEATURED_PAPERS.security);
 }
 
 async function fetchLatestFromSource(sourceKey, source, query, fromDate, todayDate) {
@@ -903,8 +932,8 @@ function renderLibrary() {
   const folderLabel = (folder) => folder === "all" ? "모든 논문" : folder;
   $("#folderGrid").innerHTML = folders.map((folder, index) => `<button class="folder-card ${state.activeFolder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}"><span class="folder-icon ${index % 3 === 1 ? "teal" : index % 3 === 2 ? "violet" : ""}">▰</span><div><strong>${escapeHtml(folderLabel(folder))}</strong><small>${folder === "all" ? "전체 분석 기록" : "주제별 논문"}</small></div><b>${folderCount(folder)}</b></button>`).join("");
   $("#miniFolderList").innerHTML = folders.slice(0, 4).map((folder) => `<button class="folder-row ${state.activeFolder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}"><span>▣</span>${escapeHtml(folderLabel(folder))}<b>${folderCount(folder)}</b></button>`).join("");
-  $("#miniPaperList").innerHTML = papers.slice(0, 3).map((paper) => `<button class="mini-paper ${state.currentPaperId === paper.id ? "active" : ""}" data-paper="${paper.id}"><i>PDF</i><span>${escapeHtml(paper.title)}<small>${relativeTime(paper.updatedAt)} · ${paper.progress}%</small></span></button>`).join("");
-  $("#paperTableBody").innerHTML = filtered.length ? filtered.map((paper) => `<button class="paper-row ${state.currentPaperId === paper.id ? "is-selected" : ""}" data-paper="${paper.id}"><span class="paper-name"><i>PDF</i><span><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.authors)} · ${paper.year} · ${paper.tags.length}개 키워드</small></span></span><span class="folder-tag ${paper.field.includes("생명") ? "violet" : paper.status === "reading" ? "muted" : ""}">${escapeHtml(paper.folder)}</span><span class="row-progress"><i><b style="width:${paper.progress}%"></b></i>${paper.progress}%</span><span>${relativeTime(paper.updatedAt)}</span><span class="row-actions">•••</span></button>`).join("") : '<div class="paper-table-empty">이 조건에 맞는 논문이 없습니다.</div>';
+  $("#miniPaperList").innerHTML = papers.slice(0, 3).map((paper) => `<div class="mini-paper-row"><button class="mini-paper ${state.currentPaperId === paper.id ? "active" : ""}" data-paper="${paper.id}"><i>PDF</i><span>${escapeHtml(paper.title)}<small>${relativeTime(paper.updatedAt)} · ${paper.progress}%</small></span></button><button class="mini-paper-delete" type="button" data-delete-paper="${paper.id}" aria-label="${escapeHtml(paper.title)} 삭제">🗑️</button></div>`).join("");
+  $("#paperTableBody").innerHTML = filtered.length ? filtered.map((paper) => `<div class="paper-row ${state.currentPaperId === paper.id ? "is-selected" : ""}" data-paper="${paper.id}" role="button" tabindex="0"><span class="paper-name"><i>PDF</i><span><strong>${escapeHtml(paper.title)}</strong><small>${escapeHtml(paper.authors)} · ${paper.year} · ${paper.tags.length}개 키워드</small></span></span><span class="folder-tag ${paper.field.includes("생명") ? "violet" : paper.status === "reading" ? "muted" : ""}">${escapeHtml(paper.folder)}</span><span class="row-progress"><i><b style="width:${paper.progress}%"></b></i>${paper.progress}%</span><span>${relativeTime(paper.updatedAt)}</span><button class="paper-delete" type="button" data-delete-paper="${paper.id}" aria-label="${escapeHtml(paper.title)} 삭제">🗑️</button></div>`).join("") : '<div class="paper-table-empty">이 조건에 맞는 논문이 없습니다.</div>';
   $("#paperListCaption").textContent = `${filtered.length}편 · 최근 분석한 순서`;
   $("#totalPaperCount").textContent = papers.length;
   $("#completePaperCount").textContent = papers.filter((paper) => paper.status === "complete").length;
@@ -917,6 +946,26 @@ function renderLibrary() {
   const percent = papers.length ? Math.round(papers.filter((paper) => paper.status === "complete").length / papers.length * 100) : 0;
   $(".complete-bar i").style.width = `${percent}%`;
   renderReadLibrary();
+}
+
+async function deletePaper(id) {
+  const paper = state.library.papers.find((item) => item.id === id);
+  if (!paper || !window.confirm(`‘${paper.title}’ 논문을 삭제할까요?`)) return;
+  const wasCurrent = state.currentPaperId === id;
+  state.library.papers = state.library.papers.filter((item) => item.id !== id);
+  if (wasCurrent) state.currentPaperId = state.library.papers[0]?.id || null;
+  saveLibrary();
+  try { await deletePdfFile(id); } catch (error) { console.warn("Saved PDF could not be deleted", error); }
+  const analyses = loadAnalyses();
+  delete analyses[id];
+  localStorage.setItem(ANALYSIS_KEY, JSON.stringify(analyses));
+  const highlights = loadHighlights();
+  delete highlights[id];
+  localStorage.setItem(HIGHLIGHT_KEY, JSON.stringify(highlights));
+  if (wasCurrent && state.currentPaperId) await openStoredPaper(state.currentPaperId);
+  else if (wasCurrent) resetApp();
+  else renderLibrary();
+  showToast("논문을 삭제했어요.");
 }
 
 function graphColor(paper) {
@@ -1004,6 +1053,7 @@ async function openStoredPaper(id) {
 }
 
 function showWorkspace(name) {
+  document.body.dataset.workspace = name;
   $("#readerPage").hidden = name !== "reader";
   $("#libraryPage").hidden = name !== "library";
   $("#knowledgePage").hidden = name !== "map";
@@ -1028,7 +1078,7 @@ function addLocalFolder() {
   showToast(`‘${name}’ 폴더를 만들었어요.`);
 }
 
-$("#libraryButton").addEventListener("click", resetApp);
+$("#libraryButton").addEventListener("click", () => showWorkspace("library"));
 $("#mapButton").addEventListener("click", () => showWorkspace("map"));
 $("#openLibrarySidebar").addEventListener("click", () => showWorkspace("library"));
 $("#closeLibrary").addEventListener("click", resetApp);
@@ -1048,8 +1098,9 @@ $$('[data-main-nav]').forEach((button) => button.addEventListener("click", () =>
 $$('.sidebar-switch button').forEach((button) => button.addEventListener("click", () => showWorkspace(button.dataset.side)));
 $("#folderGrid").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; renderLibrary(); });
 $("#miniFolderList").addEventListener("click", (event) => { const button = event.target.closest("[data-folder]"); if (!button) return; state.activeFolder = button.dataset.folder; showWorkspace("library"); });
-$("#paperTableBody").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) openStoredPaper(button.dataset.paper); });
+$("#paperTableBody").addEventListener("click", (event) => { const deleteButton = event.target.closest("[data-delete-paper]"); if (deleteButton) { event.stopPropagation(); deletePaper(deleteButton.dataset.deletePaper); return; } const row = event.target.closest("[data-paper]"); if (row) openStoredPaper(row.dataset.paper); });
 $("#miniPaperList").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) openStoredPaper(button.dataset.paper); });
+$("#miniPaperList").addEventListener("click", (event) => { const button = event.target.closest("[data-delete-paper]"); if (button) { event.stopPropagation(); deletePaper(button.dataset.deletePaper); } });
 $("#connectionNodes").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) selectGraphPaper(button.dataset.paper); });
 $("#relatedPaperList").addEventListener("click", (event) => { const button = event.target.closest("[data-paper]"); if (button) selectGraphPaper(button.dataset.paper); });
 $$('.paper-filters button').forEach((button) => button.addEventListener("click", () => { state.paperFilter = button.dataset.filter; $$('.paper-filters button').forEach((item) => item.classList.toggle("active", item === button)); renderLibrary(); }));
@@ -1066,32 +1117,27 @@ function buildExportDocument() {
   const exportRoot = $("#pdfExport");
   const title = $(".reader-title h1").textContent;
   const original = $(".original-title").textContent;
-  exportRoot.innerHTML = `
-    <div class="export-page"><section class="export-cover">
-        <div class="export-logo">PaperKo</div>
-        <div class="export-tag">KOREAN TRANSLATED PAPER</div>
-        <h1 class="export-title">${title}</h1>
-        <div class="export-subtitle">${original}</div>
-        <div class="export-meta">Vaswani et al. · 2017<br/>자연스러운 학술 번역 · Figure/Table 해설 포함</div>
-    </section></div>
-    <div class="export-page">
-      <section class="export-section"><h2>한눈에 보는 핵심</h2>
-        <div class="export-summary"><p>순환 신경망이나 합성곱 없이 어텐션 메커니즘만으로 구성한 Transformer를 제안합니다. 병렬 처리가 가능해 학습 비용을 줄이면서도 기계 번역 성능을 크게 높였습니다.</p></div>
-      </section>
-      <section class="export-section"><h2>초록</h2>
-        <p><strong>01</strong><br/>기존의 지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반합니다. 가장 우수한 모델들은 어텐션 메커니즘을 통해 인코더와 디코더를 연결합니다.</p>
-        <p><strong>02</strong><br/>본 연구에서는 순환 구조와 합성곱을 완전히 배제하고 어텐션 메커니즘에만 기반한 새로운 네트워크 구조인 Transformer를 제안합니다.</p>
-      </section>
-      <section class="export-section"><h2>서론</h2>
-        <p>순환 신경망, 특히 장단기 기억 네트워크와 게이트 순환 신경망은 언어 모델링과 기계 번역 같은 시퀀스 모델링 문제에서 최첨단 접근법으로 확고히 자리 잡았습니다.</p>
-      </section>
-    </div>
-    <div class="export-page"><section class="export-section">
-        <h2>Figure · Table 해설</h2>
-        <div class="export-figure"><div class="export-chart">Multi-Head Attention</div><p><strong>Figure 1 · Transformer 전체 구조</strong><br/>왼쪽 인코더와 오른쪽 디코더가 여러 층으로 반복되며, 각 층의 핵심은 멀티헤드 어텐션입니다. 순환 연결이 없어 모든 토큰을 동시에 처리할 수 있습니다.</p></div>
-        <div class="export-figure"><div class="export-chart">BLEU 28.40<br/>Cost 1.0×</div><p><strong>Table 2 · 번역 성능</strong><br/>Transformer는 비교 모델보다 높은 BLEU 점수를 기록하면서 학습 비용은 더 낮았습니다. 품질과 효율을 동시에 개선한 결과입니다.</p></div>
-        <div class="export-foot">PaperKo AI 번역 · 중요한 내용은 원문과 비교해 주세요.</div>
-    </section></div>`;
+  const translated = state.analyzedParagraphs.length
+    ? state.analyzedParagraphs.map((paragraph, index) => ({ index: index + 1, text: paragraph.translation || "번역 대기 중인 문단입니다." }))
+    : $$(".translation-stream .translated-text").map((node, index) => ({ index: index + 1, text: node.textContent.trim() }));
+  const chunks = [];
+  translated.forEach(({ index, text }) => {
+    let remaining = text;
+    while (remaining.length > 900) {
+      let cut = remaining.lastIndexOf(" ", 900);
+      if (cut < 500) cut = 900;
+      chunks.push({ index, text: remaining.slice(0, cut).trim(), continued: true });
+      remaining = remaining.slice(cut).trim();
+    }
+    if (remaining) chunks.push({ index, text: remaining, continued: false });
+  });
+  const pages = [`<div class="export-page"><section class="export-cover"><div class="export-logo">PaperKo</div><div class="export-tag">KOREAN TRANSLATED PAPER</div><h1 class="export-title">${escapeHtml(title)}</h1><div class="export-subtitle">${escapeHtml(original)}</div><div class="export-meta">전체 문단 번역본<br/>PaperKo AI 번역 · 중요한 내용은 원문과 비교해 주세요.</div></section></div>`];
+  for (let index = 0; index < chunks.length; index += 2) {
+    const items = chunks.slice(index, index + 2).map((chunk) => `<p><strong>문단 ${String(chunk.index).padStart(2, "0")}${chunk.continued ? " (계속)" : ""}</strong><br/>${escapeHtml(chunk.text)}</p>`).join("");
+    pages.push(`<div class="export-page"><section class="export-section"><h2>논문 전체 번역</h2>${items}</section></div>`);
+  }
+  pages.push(`<div class="export-page"><section class="export-section"><h2>Figure · Table 해설</h2><div class="export-figure"><div class="export-chart">Multi-Head Attention</div><p><strong>Figure 1 · Transformer 전체 구조</strong><br/>인코더와 디코더가 여러 층으로 반복되며 각 층의 핵심은 멀티헤드 어텐션입니다. 순환 연결이 없어 모든 토큰을 동시에 처리할 수 있습니다.</p></div><div class="export-figure"><div class="export-chart">BLEU 28.40<br/>Cost 1.0×</div><p><strong>Table 2 · 번역 성능</strong><br/>Transformer는 비교 모델보다 높은 BLEU 점수를 기록하면서 학습 비용은 더 낮았습니다.</p></div><div class="export-foot">PaperKo AI 번역 · 중요한 내용은 원문과 비교해 주세요.</div></section></div>`);
+  exportRoot.innerHTML = pages.join("");
   return $$(".export-page", exportRoot);
 }
 
