@@ -277,16 +277,18 @@ async function loadPdfDocument(file) {
   return state.pdfDocument;
 }
 
-async function extractPdfParagraphs(file) {
-  const document = await loadPdfDocument(file);
+async function extractPdfParagraphs(document) {
   const paragraphs = [];
-  for (let pageNumber = 1; pageNumber <= document.numPages && paragraphs.length < 160; pageNumber += 1) {
+  const scanned = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
     const content = await page.getTextContent();
     const viewport = page.getViewport({ scale: 1 });
     paragraphs.push(...pdfItemsToParagraphs(content.items, pageNumber, viewport.width));
+    if (!content.items.some(item => item.str?.trim())) scanned.push(pageNumber);
   }
-  return paragraphs.slice(0, 160);
+  if (scanned.length) paragraphs.push(...await ocrPdfParagraphs(document, scanned));
+  return paragraphs.sort((a, b) => a.page - b.page);
 }
 
 function ocrWordsToParagraphs(words, page, ocrViewport) {
@@ -344,8 +346,8 @@ function ocrWordsToParagraphs(words, page, ocrViewport) {
   }));
 }
 
-async function ocrPdfParagraphs(file) {
-  if (!window.Tesseract || !state.pdfDocument) throw new Error("OCR library unavailable");
+async function ocrPdfParagraphs(pdf, pages) {
+  if (!window.Tesseract) throw new Error("OCR library unavailable");
   const worker = await window.Tesseract.createWorker("eng+kor", 1, {
     logger: (message) => {
       if (message.status === "recognizing text") $("#processMessage").textContent = `스캔 PDF에서 문자를 인식하고 있어요… ${Math.round((message.progress || 0) * 100)}%`;
@@ -353,9 +355,9 @@ async function ocrPdfParagraphs(file) {
   });
   const paragraphs = [];
   try {
-    for (let pageNumber = 1; pageNumber <= state.pdfDocument.numPages && pageNumber <= 100; pageNumber += 1) {
-      $("#processMessage").textContent = `스캔 PDF ${pageNumber}/${state.pdfDocument.numPages} 페이지를 인식하고 있어요…`;
-      const page = await state.pdfDocument.getPage(pageNumber);
+    for (const pageNumber of pages) {
+      $("#processMessage").textContent = `스캔 PDF ${pageNumber}/${pdf.numPages} 페이지를 인식하고 있어요…`;
+      const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 2 });
       const canvas = document.createElement("canvas");
       canvas.width = Math.ceil(viewport.width);
@@ -364,7 +366,7 @@ async function ocrPdfParagraphs(file) {
       const result = await worker.recognize(canvas);
       paragraphs.push(...ocrWordsToParagraphs(result.data.words || [], pageNumber, viewport));
     }
-    return paragraphs.slice(0, 160);
+    return paragraphs;
   } finally {
     await worker.terminate();
   }
@@ -459,10 +461,14 @@ function renderVisualAnalysis(sample = false) {
 }
 
 async function translateParagraphAt(index) {
+  const paperId = state.currentPaperId;
+  const paragraphs = state.analyzedParagraphs;
   const paragraph = state.analyzedParagraphs[index];
   if (!paragraph || paragraph.translationStatus === "loading") return;
   paragraph.translationStatus = "loading";
-  renderAnalyzedParagraphs(state.analyzedParagraphs);
+  const card = $(`[data-paragraph-index="${index}"]`);
+  const label = card?.querySelector(".translated-text");
+  if (label) label.textContent = "번역 중…";
   try {
     paragraph.translation = await translateText(paragraph.source);
     paragraph.translationStatus = "complete";
@@ -471,23 +477,40 @@ async function translateParagraphAt(index) {
     paragraph.translationStatus = "error";
     showToast("번역 사용량이 초과되었거나 네트워크 연결이 불안정합니다.");
   }
+  if (paragraphs !== state.analyzedParagraphs || paperId !== state.currentPaperId) return;
   saveCurrentAnalysis();
   updateTranslationProgress();
-  renderAnalyzedParagraphs(state.analyzedParagraphs);
+  if (label) label.textContent = paragraph.translation || "번역을 완료하지 못했습니다.";
+  if (paragraph.translation) {
+    card?.querySelector(".translate-paragraph")?.remove();
+    card?.querySelector(".translation-block")?.classList.remove("is-pending");
+  }
 }
 
-async function analyzeUploadedPdf(file) {
-  let paragraphs = await extractPdfParagraphs(file);
-  if (!paragraphs.length) {
-    $("#processMessage").textContent = "텍스트가 없어 온디바이스 OCR로 전환합니다…";
-    paragraphs = await ocrPdfParagraphs(file);
+async function translateRemaining() {
+  const paragraphs = state.analyzedParagraphs;
+  const id = state.currentPaperId;
+  for (const [index, paragraph] of paragraphs.entries()) {
+    if (state.currentPaperId !== id || state.analyzedParagraphs !== paragraphs) return;
+    if (paragraph.translation || paragraph.translationStatus === "loading") continue;
+    await translateParagraphAt(index);
+    if (paragraph.translationStatus === "error") break;
   }
+}
+
+async function analyzeUploadedPdf(file, saved = []) {
+  const id = state.currentPaperId;
+  const paragraphs = await extractPdfParagraphs(await loadPdfDocument(file));
+  if (state.currentPaperId !== id) throw new Error("Paper selection changed");
   if (!paragraphs.length) throw new Error("No extractable text found in PDF");
-  state.analyzedParagraphs = paragraphs;
-  for (let index = 0; index < Math.min(5, paragraphs.length); index += 1) {
-    try { paragraphs[index].translation = await translateText(paragraphs[index].source); paragraphs[index].translationStatus = "complete"; }
-    catch (error) { console.warn("Initial paragraph translation failed", error); paragraphs[index].translationStatus = "error"; break; }
+  const translations = new Map(saved.filter(p => p.translation).map(p => [p.source, p.translation]));
+  for (const p of paragraphs) {
+    if (translations.has(p.source)) {
+      p.translation = translations.get(p.source);
+      p.translationStatus = "complete";
+    }
   }
+  state.analyzedParagraphs = paragraphs;
   saveCurrentAnalysis();
   return paragraphs;
 }
@@ -786,6 +809,7 @@ function runProcessing(demo = true) {
         renderLibrary();
         showWorkspace("reader");
         showView("result");
+        if (!demo && analyzed) void translateRemaining();
       }, 450);
       return;
     }
@@ -1238,8 +1262,7 @@ async function openStoredPaper(id) {
     if (storedFile) {
       if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
       state.pdfUrl = URL.createObjectURL(storedFile);
-      const savedAnalysis = loadAnalyses()[id] || [];
-      await loadPdfDocument(storedFile);
+      const savedAnalysis = await analyzeUploadedPdf(storedFile, loadAnalyses()[id] || []);
       $("#originalPdfFrame").hidden = true;
       $("#pdfCanvasView").hidden = false;
       $("#samplePdf").hidden = true;
@@ -1247,6 +1270,7 @@ async function openStoredPaper(id) {
       if (savedAnalysis.length) renderAnalyzedParagraphs(savedAnalysis);
       else restoreSampleStream();
       await renderPdfPage(1);
+      void translateRemaining();
       $("#demoBanner").innerHTML = savedAnalysis.length ? `<span>LIBRARY</span> 저장된 원문과 ${savedAnalysis.length}개 문단 번역을 열었습니다.` : '<span>LIBRARY</span> 원문 PDF를 열었습니다. Read에서 다시 분석하면 문단 번역이 생성됩니다.';
     } else {
       $("#originalPdfFrame").hidden = true;
@@ -1358,6 +1382,10 @@ function buildExportDocument() {
 }
 
 $("#downloadButton").addEventListener("click", async () => {
+  if (state.analyzedParagraphs.some(paragraph => !paragraph.translation)) {
+    showToast("마지막 문단까지 번역을 완료하면 한국어 PDF를 받을 수 있어요.");
+    return;
+  }
   const button = $("#downloadButton");
   const originalLabel = button.innerHTML;
   button.disabled = true;
