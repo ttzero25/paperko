@@ -2,6 +2,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const STORAGE_KEY = "paperko.library.v1";
+const CURRENT_PAPER_KEY = "paperko.currentPaper.v1";
 const HIGHLIGHT_KEY = "paperko.highlights.v1";
 const FILE_DB_NAME = "paperko-files";
 const FILE_STORE_NAME = "pdfs";
@@ -80,6 +81,10 @@ function loadLibrary() {
 
 function saveLibrary() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.library));
+}
+
+function rememberCurrentPaper(id) {
+  if (id) localStorage.setItem(CURRENT_PAPER_KEY, id);
 }
 
 function openFileDatabase() {
@@ -1081,6 +1086,7 @@ function saveUploadedPaperDraft(file) {
   else state.library.papers.unshift(paper);
   if (!state.library.folders.includes(paper.folder)) state.library.folders.push(paper.folder);
   state.currentPaperId = paper.id;
+  rememberCurrentPaper(paper.id);
   saveLibrary();
   renderLibrary();
   return paper.id;
@@ -1094,6 +1100,7 @@ function upsertUploadedPaper() {
   const progress = state.analyzedParagraphs.length ? Math.round(translatedCount / state.analyzedParagraphs.length * 100) : 0;
   Object.assign(existing, descriptor, { status: progress === 100 ? "complete" : "reading", progress, updatedAt: new Date().toISOString() });
   state.currentPaperId = existing.id;
+  rememberCurrentPaper(existing.id);
   saveLibrary();
   showToast("Analysis saved to Library.");
   return existing.id;
@@ -1170,7 +1177,7 @@ async function deletePaper(id) {
   delete highlights[id];
   localStorage.setItem(HIGHLIGHT_KEY, JSON.stringify(highlights));
   if (wasCurrent && state.currentPaperId) await openStoredPaper(state.currentPaperId);
-  else if (wasCurrent) resetApp();
+  else if (wasCurrent) { localStorage.removeItem(CURRENT_PAPER_KEY); resetApp(); }
   else renderLibrary();
   showToast("논문을 삭제했어요.");
 }
@@ -1220,6 +1227,7 @@ async function openStoredPaper(id) {
   const paper = state.library.papers.find((item) => item.id === id);
   if (!paper) return;
   state.currentPaperId = id;
+  rememberCurrentPaper(id);
   $("#headerPaperTitle").textContent = paper.title;
   $(".reader-title h1").textContent = paper.title;
   $(".original-title").textContent = `${paper.authors} · ${paper.year}`;
@@ -1377,6 +1385,10 @@ $("#downloadButton").addEventListener("click", async () => {
 });
 
 state.library = loadLibrary();
+const rememberedPaperId = localStorage.getItem(CURRENT_PAPER_KEY);
+const hasRememberedPaper = Boolean(rememberedPaperId && state.library.papers.some((paper) => paper.id === rememberedPaperId));
+if (hasRememberedPaper) state.currentPaperId = rememberedPaperId;
+else if (rememberedPaperId) localStorage.removeItem(CURRENT_PAPER_KEY);
 state.highlights = loadHighlights();
 restoreHighlights(state.currentPaperId);
 enhanceSampleKnowledge();
@@ -1391,7 +1403,8 @@ if (!latestPaperRecord?.papers?.length || Date.now() - new Date(latestPaperRecor
 if (["#reader", "#library", "#map"].includes(location.hash)) {
   const initialWorkspace = location.hash.slice(1);
   showView("result");
-  showWorkspace(initialWorkspace);
+  if (initialWorkspace === "reader" && hasRememberedPaper) openStoredPaper(rememberedPaperId);
+  else showWorkspace(initialWorkspace);
 } else if (location.hash === "#read") {
   showView("upload");
 } else {
