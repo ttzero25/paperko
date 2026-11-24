@@ -284,6 +284,87 @@ async function extractPdfParagraphs(file) {
   return paragraphs.slice(0, 160);
 }
 
+function ocrWordsToParagraphs(words, page, ocrViewport) {
+  const usable = words.filter((word) => word.text?.trim() && Number(word.confidence ?? 0) >= 20).map((word) => ({
+    text: word.text.trim(),
+    left: word.bbox.x0,
+    top: word.bbox.y0,
+    right: word.bbox.x1,
+    bottom: word.bbox.y1,
+  })).sort((a, b) => a.top - b.top || a.left - b.left);
+  const lines = [];
+  usable.forEach((word) => {
+    const height = word.bottom - word.top;
+    const center = (word.top + word.bottom) / 2;
+    const line = lines.find((candidate) => Math.abs(candidate.center - center) <= Math.max(8, height * .55) && Math.abs(candidate.centerX - (word.left + word.right) / 2) <= ocrViewport.width * .22);
+    if (line) {
+      line.words.push(word);
+      line.top = Math.min(line.top, word.top);
+      line.bottom = Math.max(line.bottom, word.bottom);
+      line.center = (line.top + line.bottom) / 2;
+      line.centerX = (Math.min(...line.words.map((item) => item.left)) + Math.max(...line.words.map((item) => item.right))) / 2;
+    } else lines.push({ words: [word], top: word.top, bottom: word.bottom, center, centerX: (word.left + word.right) / 2 });
+  });
+  lines.sort((a, b) => a.top - b.top || Math.min(...a.words.map((word) => word.left)) - Math.min(...b.words.map((word) => word.left)));
+  const paragraphs = [];
+  let current = null;
+  lines.forEach((line) => {
+    const gap = current ? line.top - current.bottom : 0;
+    const lineText = line.words.sort((a, b) => a.left - b.left).map((word) => word.text).join(" ");
+    const changedColumn = current && Math.abs(line.centerX - current.centerX) > ocrViewport.width * .22;
+    if (!current || changedColumn || gap > Math.max(18, (line.bottom - line.top) * 1.7)) {
+      current = { page, lines: [line], text: lineText, bottom: line.bottom, centerX: line.centerX };
+      paragraphs.push(current);
+    } else {
+      current.lines.push(line);
+      current.text += ` ${lineText}`;
+      current.bottom = line.bottom;
+    }
+  });
+  return paragraphs.filter((paragraph) => paragraph.text.length >= 35).map((paragraph) => ({
+    page,
+    source: paragraph.text.replace(/\s+/g, " ").trim(),
+    translation: "",
+    translationStatus: "pending",
+    boxes: paragraph.lines.flatMap((line) => {
+      const left = Math.min(...line.words.map((word) => word.left));
+      const top = Math.min(...line.words.map((word) => word.top));
+      const right = Math.max(...line.words.map((word) => word.right));
+      const bottom = Math.max(...line.words.map((word) => word.bottom));
+      const [x1, y1] = ocrViewport.convertToPdfPoint(left, top);
+      const [x2, y2] = ocrViewport.convertToPdfPoint(right, bottom);
+      return [{ x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) }];
+    }),
+    knowledge: relatedKnowledge(paragraph.text),
+  }));
+}
+
+async function ocrPdfParagraphs(file) {
+  if (!window.Tesseract || !state.pdfDocument) throw new Error("OCR library unavailable");
+  const worker = await window.Tesseract.createWorker("eng+kor", 1, {
+    logger: (message) => {
+      if (message.status === "recognizing text") $("#processMessage").textContent = `스캔 PDF에서 문자를 인식하고 있어요… ${Math.round((message.progress || 0) * 100)}%`;
+    },
+  });
+  const paragraphs = [];
+  try {
+    for (let pageNumber = 1; pageNumber <= state.pdfDocument.numPages && pageNumber <= 100; pageNumber += 1) {
+      $("#processMessage").textContent = `스캔 PDF ${pageNumber}/${state.pdfDocument.numPages} 페이지를 인식하고 있어요…`;
+      const page = await state.pdfDocument.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      const result = await worker.recognize(canvas);
+      paragraphs.push(...ocrWordsToParagraphs(result.data.words || [], pageNumber, viewport));
+    }
+    return paragraphs.slice(0, 160);
+  } finally {
+    await worker.terminate();
+  }
+}
+
 function utf8Length(text) {
   return new TextEncoder().encode(text).length;
 }
@@ -391,7 +472,11 @@ async function translateParagraphAt(index) {
 }
 
 async function analyzeUploadedPdf(file) {
-  const paragraphs = await extractPdfParagraphs(file);
+  let paragraphs = await extractPdfParagraphs(file);
+  if (!paragraphs.length) {
+    $("#processMessage").textContent = "텍스트가 없어 온디바이스 OCR로 전환합니다…";
+    paragraphs = await ocrPdfParagraphs(file);
+  }
   if (!paragraphs.length) throw new Error("No extractable text found in PDF");
   state.analyzedParagraphs = paragraphs;
   for (let index = 0; index < Math.min(5, paragraphs.length); index += 1) {
@@ -430,15 +515,15 @@ function renderPdfHoverTargets() {
   const layer = $("#pdfHoverLayer");
   if (!layer || !state.pdfViewport) return;
   const paragraphs = state.analyzedParagraphs.filter((paragraph) => paragraph.page === state.currentPdfPage);
-  layer.innerHTML = paragraphs.map((paragraph) => {
+  layer.innerHTML = paragraphs.flatMap((paragraph) => {
     const index = state.analyzedParagraphs.indexOf(paragraph);
-    const rectangles = paragraph.boxes.map((box) => state.pdfViewport.convertToViewportRectangle([box.x, box.y, box.x + box.width, box.y + box.height]));
-    const left = Math.min(...rectangles.map(([x1]) => x1));
-    const top = Math.min(...rectangles.flatMap(([, y1, , y2]) => [y1, y2]));
-    const right = Math.max(...rectangles.map(([, , x2]) => x2));
-    const bottom = Math.max(...rectangles.flatMap(([, y1, , y2]) => [y1, y2]));
     const selected = state.selectedParagraphIndex === index ? " selected" : "";
-    return `<button class="pdf-paragraph-target${selected}" type="button" data-hover-paragraph="${index}" style="left:${left}px;top:${top}px;width:${Math.max(8, right - left)}px;height:${Math.max(8, bottom - top)}px" aria-label="문단 ${index + 1} 번역 보기"></button>`;
+    return paragraph.boxes.map((box) => {
+      const [x1, y1, x2, y2] = state.pdfViewport.convertToViewportRectangle([box.x, box.y, box.x + box.width, box.y + box.height]);
+      const left = Math.min(x1, x2);
+      const top = Math.min(y1, y2);
+      return `<button class="pdf-paragraph-target${selected}" type="button" data-hover-paragraph="${index}" style="left:${left}px;top:${top}px;width:${Math.max(8, Math.abs(x2 - x1))}px;height:${Math.max(8, Math.abs(y2 - y1))}px" aria-label="문단 ${index + 1} 번역 보기"></button>`;
+    });
   }).join("");
 }
 
